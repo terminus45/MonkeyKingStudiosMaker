@@ -34,6 +34,10 @@ const loraSelect    = document.getElementById('loraSelect');
 const loraScaleRow  = document.getElementById('loraScaleRow');
 const loraScaleEl   = document.getElementById('loraScale');
 const loraScaleVal  = document.getElementById('loraScaleVal');
+const loraSelect2   = document.getElementById('loraSelect2');
+const loraScaleRow2 = document.getElementById('loraScaleRow2');
+const loraScaleEl2  = document.getElementById('loraScale2');
+const loraScaleVal2 = document.getElementById('loraScaleVal2');
 const statusDot     = document.getElementById('statusDot');
 const statusLabel   = document.getElementById('statusLabel');
 const negToggle     = document.getElementById('negToggle');
@@ -74,15 +78,12 @@ async function loadLoras() {
   try {
     const res  = await fetch(`${API}/loras`);
     const data = await res.json();
-    loraSelect.innerHTML = '<option value="">— none —</option>';
-    (data.loras || []).forEach(l => {
-      const opt = document.createElement('option');
-      opt.value = l.num;
-      opt.textContent = l.name;
-      if (l.loaded) opt.selected = true;
-      loraSelect.appendChild(opt);
-    });
-    loraScaleRow.style.display = loraSelect.value ? 'flex' : 'none';
+    const opts = '<option value="">— none —</option>' +
+      (data.loras || []).map(l => `<option value="${l.num}">${l.name}</option>`).join('');
+    loraSelect.innerHTML  = opts;
+    loraSelect2.innerHTML = opts;
+    loraScaleRow.style.display  = loraSelect.value  ? 'flex' : 'none';
+    loraScaleRow2.style.display = loraSelect2.value ? 'flex' : 'none';
   } catch {
     // no loras available
   }
@@ -100,6 +101,12 @@ loraSelect.addEventListener('change', () => {
 loraScaleEl.addEventListener('input', () => {
   loraScaleVal.textContent = parseFloat(loraScaleEl.value).toFixed(2);
 });
+loraSelect2.addEventListener('change', () => {
+  loraScaleRow2.style.display = loraSelect2.value ? 'flex' : 'none';
+});
+loraScaleEl2.addEventListener('input', () => {
+  loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
+});
 
 // ── Style presets — fill the style textarea ────────────────────────────────
 document.getElementById('stylePresets').addEventListener('click', e => {
@@ -109,15 +116,35 @@ document.getElementById('stylePresets').addEventListener('click', e => {
   stylePromptEl.dispatchEvent(new Event('input'));
 });
 
-// ── Size presets ───────────────────────────────────────────────────────────
+// ── Size presets + custom dimension inputs ─────────────────────────────────
+const widthInput  = document.getElementById('widthInput');
+const heightInput = document.getElementById('heightInput');
+
+function setCanvasSize(w, h) {
+  canvasW = w; canvasH = h;
+  widthInput.value  = w;
+  heightInput.value = h;
+}
+
 document.getElementById('sizePresets').addEventListener('click', e => {
   const btn = e.target.closest('.size-btn');
   if (!btn) return;
   document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  canvasW = parseInt(btn.dataset.w);
-  canvasH = parseInt(btn.dataset.h);
+  setCanvasSize(parseInt(btn.dataset.w), parseInt(btn.dataset.h));
 });
+
+function onDimInput() {
+  const w = Math.max(64, Math.min(2048, parseInt(widthInput.value)  || canvasW));
+  const h = Math.max(64, Math.min(2048, parseInt(heightInput.value) || canvasH));
+  canvasW = w; canvasH = h;
+  // Deselect any preset that no longer matches
+  document.querySelectorAll('.size-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.w) === w && parseInt(b.dataset.h) === h);
+  });
+}
+widthInput.addEventListener('change',  onDimInput);
+heightInput.addEventListener('change', onDimInput);
 
 // ── Sliders ────────────────────────────────────────────────────────────────
 stepsEl.addEventListener('input', () => stepsVal.textContent = stepsEl.value);
@@ -160,6 +187,10 @@ async function generate() {
     if (loraSelect.value) {
       body.lora_num   = parseInt(loraSelect.value);
       body.lora_scale = parseFloat(loraScaleEl.value);
+    }
+    if (loraSelect2.value) {
+      body.lora_num_2   = parseInt(loraSelect2.value);
+      body.lora_scale_2 = parseFloat(loraScaleEl2.value);
     }
 
     const res = await fetch(`${API}/generate/stream`, {

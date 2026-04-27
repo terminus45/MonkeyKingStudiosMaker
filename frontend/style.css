@@ -173,6 +173,33 @@ textarea.collapsed { display: none; }
 .preset:hover  { border-color: var(--gold); color: var(--gold); }
 .preset.active { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 600; }
 
+/* ── Dimension inputs ── */
+.size-dims-row {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-top: .45rem;
+}
+.size-dims-row input[type="number"] {
+  width: 5rem;
+  padding: .25rem .4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--ctrl-bg);
+  color: var(--ink);
+  font-size: .8rem;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.size-dims-row input[type="number"]::-webkit-inner-spin-button,
+.size-dims-row input[type="number"]::-webkit-outer-spin-button { opacity: 1; }
+.size-dims-row input[type="number"]:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.size-dims-x  { color: var(--muted); font-size: .8rem; }
+.size-dims-px { color: var(--muted); font-size: .75rem; }
+
 /* ── Sliders ── */
 .sliders { gap: .75rem; }
 .slider-row { display: flex; flex-direction: column; gap: .25rem; }

@@ -36,6 +36,10 @@ const loraSelect      = document.getElementById('loraSelect');
 const loraScaleRow    = document.getElementById('loraScaleRow');
 const loraScaleEl     = document.getElementById('loraScale');
 const loraScaleVal    = document.getElementById('loraScaleVal');
+const loraSelect2     = document.getElementById('loraSelect2');
+const loraScaleRow2   = document.getElementById('loraScaleRow2');
+const loraScaleEl2    = document.getElementById('loraScale2');
+const loraScaleVal2   = document.getElementById('loraScaleVal2');
 const queueBtn        = document.getElementById('queueBtn');
 const queueLabel      = document.getElementById('queueLabel');
 const queueSpinner    = document.getElementById('queueSpinner');
@@ -90,15 +94,12 @@ async function loadLoras() {
   try {
     const res  = await fetch(`${API}/loras`);
     const data = await res.json();
-    loraSelect.innerHTML = '<option value="">— none —</option>';
-    (data.loras || []).forEach(l => {
-      const opt = document.createElement('option');
-      opt.value = l.num;
-      opt.textContent = l.name;
-      if (l.loaded) opt.selected = true;
-      loraSelect.appendChild(opt);
-    });
-    loraScaleRow.classList.toggle('hidden', !loraSelect.value);
+    const opts = '<option value="">— none —</option>' +
+      (data.loras || []).map(l => `<option value="${l.num}">${l.name}</option>`).join('');
+    loraSelect.innerHTML  = opts;
+    loraSelect2.innerHTML = opts;
+    loraScaleRow.classList.toggle('hidden',  !loraSelect.value);
+    loraScaleRow2.classList.toggle('hidden', !loraSelect2.value);
   } catch {
     // no loras available — leave dropdown empty
   }
@@ -110,6 +111,12 @@ loraSelect.addEventListener('change', () => {
 loraScaleEl.addEventListener('input', () => {
   loraScaleVal.textContent = parseFloat(loraScaleEl.value).toFixed(2);
 });
+loraSelect2.addEventListener('change', () => {
+  loraScaleRow2.classList.toggle('hidden', !loraSelect2.value);
+});
+loraScaleEl2.addEventListener('input', () => {
+  loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
+});
 
 // ── Style presets — fill the style textarea ────────────────────────────────
 document.getElementById('stylePresets').addEventListener('click', e => {
@@ -118,15 +125,34 @@ document.getElementById('stylePresets').addEventListener('click', e => {
   stylePromptInput.value = btn.dataset.suffix;
 });
 
-// ── Size presets ───────────────────────────────────────────────────────────
+// ── Size presets + custom dimension inputs ─────────────────────────────────
+const widthInput  = document.getElementById('widthInput');
+const heightInput = document.getElementById('heightInput');
+
+function setCanvasSize(w, h) {
+  canvasW = w; canvasH = h;
+  widthInput.value  = w;
+  heightInput.value = h;
+}
+
 document.getElementById('sizePresets').addEventListener('click', e => {
   const btn = e.target.closest('.size-btn');
   if (!btn) return;
   document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  canvasW = parseInt(btn.dataset.w);
-  canvasH = parseInt(btn.dataset.h);
+  setCanvasSize(parseInt(btn.dataset.w), parseInt(btn.dataset.h));
 });
+
+function onDimInput() {
+  const w = Math.max(64, Math.min(2048, parseInt(widthInput.value)  || canvasW));
+  const h = Math.max(64, Math.min(2048, parseInt(heightInput.value) || canvasH));
+  canvasW = w; canvasH = h;
+  document.querySelectorAll('.size-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.w) === w && parseInt(b.dataset.h) === h);
+  });
+}
+widthInput.addEventListener('change',  onDimInput);
+heightInput.addEventListener('change', onDimInput);
 
 // ── Sliders ────────────────────────────────────────────────────────────────
 stepsEl.addEventListener('input', () => stepsVal.textContent = stepsEl.value);
@@ -200,6 +226,12 @@ function buildCard(pg) {
         </div>
         <span class="card-progress-label" id="card-progress-label-${pg.page}">0 / 0</span>
       </div>
+      <div class="thumb-upload-overlay" id="upload-overlay-${pg.page}">
+        <label class="thumb-upload-btn" title="Upload image for this page">
+          ↑ Upload
+          <input type="file" accept="image/*" style="display:none" data-page="${pg.page}">
+        </label>
+      </div>
     </div>
     <div class="card-body">
       <div class="card-page-num">Page ${pg.page}</div>
@@ -227,6 +259,55 @@ function buildCard(pg) {
   `;
   return card;
 }
+
+// ── Manual image upload ────────────────────────────────────────────────────
+async function uploadImageFile(pageNum, file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  showThumbSpinner(pageNum);
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API}/upload-image`, { method: 'POST', body: form });
+    if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText);
+    const { filename } = await res.json();
+    const url = `${API}/image/${filename}`;
+    generatedImages[pageNum] = { filename, url };
+    showThumbImage(pageNum, url);
+    saveState();
+  } catch (err) {
+    showThumbError(pageNum, err.message);
+  }
+}
+
+// Wire up file input clicks and drag-and-drop on the page grid (event delegation)
+pageGrid.addEventListener('change', e => {
+  const input = e.target.closest('input[type="file"][data-page]');
+  if (!input || !input.files[0]) return;
+  uploadImageFile(parseInt(input.dataset.page), input.files[0]);
+  input.value = '';   // reset so same file can be re-selected
+});
+
+pageGrid.addEventListener('dragover', e => {
+  const wrap = e.target.closest('.card-thumb-wrap');
+  if (!wrap) return;
+  e.preventDefault();
+  wrap.classList.add('drag-over');
+});
+
+pageGrid.addEventListener('dragleave', e => {
+  const wrap = e.target.closest('.card-thumb-wrap');
+  if (wrap && !wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-over');
+});
+
+pageGrid.addEventListener('drop', e => {
+  const wrap = e.target.closest('.card-thumb-wrap');
+  if (!wrap) return;
+  e.preventDefault();
+  wrap.classList.remove('drag-over');
+  const pageNum = parseInt(wrap.id.replace('thumb-wrap-', ''));
+  const file = e.dataTransfer.files[0];
+  uploadImageFile(pageNum, file);
+});
 
 // Read current card values (user may have edited them)
 function readCard(pageNum) {
@@ -293,6 +374,10 @@ queueBtn.addEventListener('click', async () => {
       if (loraSelect.value) {
         genBody.lora_num   = parseInt(loraSelect.value);
         genBody.lora_scale = parseFloat(loraScaleEl.value);
+      }
+      if (loraSelect2.value) {
+        genBody.lora_num_2   = parseInt(loraSelect2.value);
+        genBody.lora_scale_2 = parseFloat(loraScaleEl2.value);
       }
 
       const res = await fetch(`${API}/generate/stream`, {

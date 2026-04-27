@@ -100,10 +100,11 @@ class ImageGenerator:
     def __init__(self):
         self.pipeline: Optional[StableDiffusionPipeline] = None
         self.loaded_model_id: Optional[str] = None
-        self._active_lora: Optional[str] = None  # path of currently-fused LoRA
+        self._active_loras: list[dict] = []  # [{path, scale}, ...]
+        self._fused: bool = False             # True when a LoRA has been fused into weights
 
     def load(self, model_id: str = MODEL_ID):
-        if self.loaded_model_id == model_id and self.pipeline is not None:
+        if self.loaded_model_id == model_id and self.pipeline is not None and not self._fused:
             return
 
         dtype = torch.float16 if DEVICE in ("cuda", "mps") else torch.float32
@@ -122,7 +123,8 @@ class ImageGenerator:
 
         self.pipeline = pipe
         self.loaded_model_id = model_id
-        self._active_lora = None
+        self._active_loras = []
+        self._fused = False
 
     def load_by_number(self, num: int):
         models = discover_models()
@@ -132,29 +134,60 @@ class ImageGenerator:
         self.load(match["path"])
         return match
 
-    def _apply_lora(self, lora_path: Optional[str]):
-        """Load or unload a LoRA on the current pipeline as needed."""
-        if lora_path == self._active_lora:
-            return
-        if self._active_lora is not None:
-            self.pipeline.unload_lora_weights()
-            self._active_lora = None
-        if lora_path:
+    def _load_one_lora(self, lora: dict):
+        """Load a single LoRA without adapter_name (avoids PEFT/CLIPTextModel issues)."""
+        try:
+            self.pipeline.load_lora_weights(lora["path"])
+        except Exception as e:
             try:
-                self.pipeline.load_lora_weights(lora_path)
-                self._active_lora = lora_path
-            except Exception as e:
-                # Leave pipeline in clean (no-LoRA) state and surface a clear error
-                try:
-                    self.pipeline.unload_lora_weights()
-                except Exception:
-                    pass
-                self._active_lora = None
-                lora_name = Path(lora_path).stem
-                raise RuntimeError(
-                    f"LoRA '{lora_name}' is incompatible with the loaded model "
-                    f"(weight size mismatch). Use a LoRA trained on the same base model."
-                ) from e
+                self.pipeline.unload_lora_weights()
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"LoRA '{Path(lora['path']).stem}' is incompatible with the loaded model. "
+                f"Use a LoRA trained on the same base model."
+            ) from e
+
+    def _apply_loras(self, loras: list[dict]):
+        """Apply up to 2 LoRAs.
+        - 0 LoRAs: unload any active LoRA.
+        - 1 LoRA:  load normally; scale applied via cross_attention_kwargs.
+        - 2 LoRAs: fuse the first into model weights, load the second normally.
+          Fusing permanently modifies base weights, so we force a reload next time
+          the LoRA set changes (tracked via self._fused).
+        """
+        paths = [l["path"] for l in loras]
+        prev_paths = [l["path"] for l in self._active_loras]
+
+        if paths == prev_paths:
+            # Paths unchanged — just update scales in place (used in generate via call_kwargs).
+            self._active_loras = loras
+            return
+
+        # If base weights are contaminated by a fused LoRA, must reload from scratch.
+        if self._fused:
+            self.load(self.loaded_model_id)  # resets _fused + _active_loras
+        elif self._active_loras:
+            try:
+                self.pipeline.unload_lora_weights()
+            except Exception:
+                pass
+            self._active_loras = []
+
+        if not loras:
+            return
+
+        if len(loras) == 1:
+            self._load_one_lora(loras[0])
+        else:
+            # Fuse first LoRA permanently into the base weights, then load second on top.
+            self._load_one_lora(loras[0])
+            self.pipeline.fuse_lora(lora_scale=loras[0]["scale"])
+            self.pipeline.unload_lora_weights()
+            self._fused = True
+            self._load_one_lora(loras[1])
+
+        self._active_loras = loras
 
     def generate(
         self,
@@ -165,14 +198,14 @@ class ImageGenerator:
         width: int = 512,
         height: int = 512,
         seed: int = -1,
-        lora_path: Optional[str] = None,
-        lora_scale: float = 1.0,
-        step_callback=None,   # callable(step: int, total: int)
+        loras: Optional[list] = None,   # [{"path": str, "scale": float}, ...]
+        step_callback=None,             # callable(step: int, total: int)
     ) -> tuple[Image.Image, int]:
         if self.pipeline is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
-        self._apply_lora(lora_path)
+        loras = [l for l in (loras or []) if l.get("path")]
+        self._apply_loras(loras)
 
         actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
         gen = torch.Generator(device=DEVICE).manual_seed(actual_seed)
@@ -186,8 +219,10 @@ class ImageGenerator:
             height=height,
             generator=gen,
         )
-        if lora_path:
-            call_kwargs["cross_attention_kwargs"] = {"scale": lora_scale}
+
+        # Apply scale for the last (unfused) active LoRA via cross_attention_kwargs.
+        if self._active_loras:
+            call_kwargs["cross_attention_kwargs"] = {"scale": self._active_loras[-1]["scale"]}
 
         if step_callback is not None:
             def _cb(pipe, step_index, timestep, callback_kwargs):

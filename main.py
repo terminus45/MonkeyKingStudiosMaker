@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import anthropic
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,6 +57,9 @@ class GenerateRequest(BaseModel):
     lora_num: Optional[int] = None
     lora_path: Optional[str] = None
     lora_scale: float = Field(1.0, ge=0.0, le=2.0)
+    lora_num_2: Optional[int] = None
+    lora_path_2: Optional[str] = None
+    lora_scale_2: float = Field(1.0, ge=0.0, le=2.0)
     steps: int = Field(DEFAULT_STEPS, ge=1, le=150)
     guidance_scale: float = Field(DEFAULT_GUIDANCE_SCALE, ge=1.0, le=30.0)
     width: int = Field(DEFAULT_WIDTH, ge=64, le=2048)
@@ -88,10 +91,10 @@ def health():
 def list_loras():
     """List all LoRA files in the LORAs folder."""
     loras = discover_loras()
-    active = generator._active_lora
+    active_paths = {l["path"] for l in generator._active_loras}
     for l in loras:
-        l["loaded"] = (l["path"] == active)
-    return {"loras": loras, "active_lora": active}
+        l["loaded"] = l["path"] in active_paths
+    return {"loras": loras, "active_loras": [l["path"] for l in generator._active_loras]}
 
 
 @app.get("/models")
@@ -124,6 +127,26 @@ def load_model(req: LoadRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _resolve_loras(req: GenerateRequest) -> list[dict]:
+    """Build the loras list from request fields (supports up to 2 LoRAs)."""
+    all_loras = None  # lazy-loaded
+    result = []
+    for num_field, path_field, scale_field in [
+        (req.lora_num,   req.lora_path,   req.lora_scale),
+        (req.lora_num_2, req.lora_path_2, req.lora_scale_2),
+    ]:
+        if num_field is not None:
+            if all_loras is None:
+                all_loras = discover_loras()
+            match = next((l for l in all_loras if l["num"] == num_field), None)
+            if match is None:
+                raise HTTPException(status_code=404, detail=f"No LoRA with num {num_field}.")
+            result.append({"path": match["path"], "scale": scale_field})
+        elif path_field:
+            result.append({"path": path_field, "scale": scale_field})
+    return result
+
+
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
     try:
@@ -133,16 +156,7 @@ def generate(req: GenerateRequest):
         elif req.model_id and req.model_id != generator.loaded_model_id:
             generator.load(req.model_id)
 
-        # Resolve LoRA path
-        lora_path = None
-        if req.lora_num is not None:
-            loras = discover_loras()
-            match = next((l for l in loras if l["num"] == req.lora_num), None)
-            if match is None:
-                raise HTTPException(status_code=404, detail=f"No LoRA with num {req.lora_num}.")
-            lora_path = match["path"]
-        elif req.lora_path:
-            lora_path = req.lora_path
+        loras = _resolve_loras(req)
 
         image, used_seed = generator.generate(
             prompt=req.prompt,
@@ -152,8 +166,7 @@ def generate(req: GenerateRequest):
             width=req.width,
             height=req.height,
             seed=req.seed,
-            lora_path=lora_path,
-            lora_scale=req.lora_scale,
+            loras=loras,
         )
 
         filename = f"{uuid.uuid4().hex}.png"
@@ -189,14 +202,11 @@ async def generate_stream(req: GenerateRequest):
             elif req.model_id and req.model_id != generator.loaded_model_id:
                 generator.load(req.model_id)
 
-            lora_path = None
-            if req.lora_num is not None:
-                loras = discover_loras()
-                match = next((l for l in loras if l["num"] == req.lora_num), None)
-                if match:
-                    lora_path = match["path"]
-            elif req.lora_path:
-                lora_path = req.lora_path
+            try:
+                loras = _resolve_loras(req)
+            except HTTPException as e:
+                loop.call_soon_threadsafe(queue.put_nowait, {"error": e.detail})
+                return
 
             def on_step(step: int, total: int):
                 loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
@@ -209,8 +219,7 @@ async def generate_stream(req: GenerateRequest):
                 width=req.width,
                 height=req.height,
                 seed=req.seed,
-                lora_path=lora_path,
-                lora_scale=req.lora_scale,
+                loras=loras,
                 step_callback=on_step,
             )
 
@@ -364,6 +373,23 @@ def get_image(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path, media_type="image/png")
+
+
+@app.post("/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    """Accept an uploaded image file, save it to OUTPUT_DIR, return the filename."""
+    from config import OUTPUT_DIR
+    data = await file.read()
+    # Re-encode through Pillow to normalise format and strip metadata
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image.")
+    filename = f"{uuid.uuid4().hex}.png"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    img.save(os.path.join(OUTPUT_DIR, filename))
+    return {"filename": filename}
 
 
 # ── Gallery ───────────────────────────────────────────────────────────────────
