@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Builder · MonkeyKing</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="book_builder.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="header-title">
+        <span class="title-zh">齐天大圣</span>
+        <span class="title-en">MonkeyKing Story Studio</span>
+      </div>
+      <nav class="header-nav">
+        <a href="index.html" class="nav-link">Image Studio</a>
+        <a href="book_builder.html" class="nav-link active">Book Builder</a>
+        <a href="gallery.html" class="nav-link">Gallery</a>
+      </nav>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="builder-main">
+
+    <!-- ── STEP 1: Concept ── -->
+    <section class="builder-step" id="step1">
+      <div class="step-header">
+        <span class="step-num">①</span>
+        <h2>Story Concept</h2>
+        <div class="project-actions">
+          <button id="saveProjectBtn" class="project-btn" disabled>↓ Save Project</button>
+          <label class="project-btn" for="loadProjectFile">↑ Load Project</label>
+          <input type="file" id="loadProjectFile" accept=".json" style="display:none">
+          <button id="clearProjectBtn" class="project-btn danger-btn">✕ Clear</button>
+        </div>
+      </div>
+
+      <div class="concept-row">
+        <textarea id="conceptInput" rows="4"
+          placeholder="Describe your storybook idea… e.g. 'Sun Wukong learns to share with the animals of the forest'"></textarea>
+      </div>
+
+      <div class="control-group" style="margin-top:.75rem">
+        <label>Style Prompt <span class="hint">(applied to all image generation)</span></label>
+        <textarea id="stylePromptInput" rows="3"
+          placeholder="Describe the visual style for all illustrations…"></textarea>
+        <div class="presets" id="stylePresets" style="margin-top:.4rem">
+          <button class="preset"
+            data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+          <button class="preset"
+            data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+          <button class="preset"
+            data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+          <button class="preset"
+            data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+          <button class="preset" data-suffix="">Clear</button>
+        </div>
+      </div>
+
+      <button id="decomposeBtn" class="generate-btn" style="max-width:320px;margin-top:1rem">
+        <span id="decomposeLabel">✦ Create Story with Claude</span>
+        <div class="spinner hidden" id="decomposeSpinner"></div>
+      </button>
+      <p class="hint-text" id="decomposeHint"></p>
+
+      <div class="import-divider"><span>or import from table</span></div>
+
+      <details class="import-section" id="importSection">
+        <summary class="import-summary">↓ Paste CSV / spreadsheet table</summary>
+        <div class="import-body">
+          <div class="import-titles">
+            <div class="control-group" style="flex:2">
+              <label>Book Title (English)</label>
+              <input type="text" id="importTitleEn" placeholder="My Storybook">
+            </div>
+            <div class="control-group" style="flex:1.5">
+              <label>书名（中文）</label>
+              <input type="text" id="importTitleZh" placeholder="故事书">
+            </div>
+            <div class="control-group" style="flex:1.5">
+              <label>Title Pinyin</label>
+              <input type="text" id="importTitlePinyin" placeholder="Gùshì shū">
+            </div>
+          </div>
+          <div class="control-group" style="margin-top:.5rem">
+            <label>Table data <span class="hint">(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)</span></label>
+            <textarea id="tableInput" rows="7" placeholder="Paste your table here…"></textarea>
+          </div>
+          <button id="parseTableBtn" class="generate-btn" style="max-width:260px;margin-top:.75rem">
+            ↑ Import Pages
+          </button>
+          <p class="hint-text" id="parseHint"></p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── STEP 2: Page Cards ── -->
+    <section class="builder-step hidden" id="step2">
+      <div class="step-header">
+        <span class="step-num">②</span>
+        <h2 id="bookTitleDisplay">Storybook Pages</h2>
+      </div>
+      <p class="section-sub" id="bookTitleSub"></p>
+
+      <div class="page-grid" id="pageGrid">
+        <!-- cards injected by JS -->
+      </div>
+    </section>
+
+    <!-- ── STEP 3: Generation Queue ── -->
+    <section class="builder-step" id="step3">
+      <div class="step-header">
+        <span class="step-num">③</span>
+        <h2>Generate Images</h2>
+      </div>
+
+      <div class="gen-controls">
+        <div class="control-group">
+          <label>Model</label>
+          <select id="modelSelect"><option value="">Loading…</option></select>
+        </div>
+
+        <div class="control-group">
+          <label>Canvas Size</label>
+          <div class="presets" id="sizePresets">
+            <button class="preset size-btn active" data-w="768" data-h="768">1:1</button>
+            <button class="preset size-btn" data-w="1024" data-h="576">16:9</button>
+            <button class="preset size-btn" data-w="576" data-h="1024">Portrait</button>
+          </div>
+        </div>
+
+        <div class="control-group sliders">
+          <div class="slider-row">
+            <label>Steps <span id="stepsVal">30</span></label>
+            <input type="range" id="steps" min="10" max="80" value="30">
+          </div>
+          <div class="slider-row">
+            <label>Guidance <span id="cfgVal">7.0</span></label>
+            <input type="range" id="cfg" min="1" max="20" step="0.5" value="7.0">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>LoRA</label>
+          <select id="loraSelect"><option value="">— none —</option></select>
+          <div class="slider-row lora-scale-row hidden" id="loraScaleRow">
+            <label>LoRA Weight <span id="loraScaleVal">1.00</span></label>
+            <input type="range" id="loraScale" min="0" max="2" step="0.05" value="1.0">
+          </div>
+        </div>
+      </div>
+
+      <div class="queue-btn-row">
+        <button id="queueBtn" class="generate-btn" style="max-width:300px;margin-top:1.25rem" disabled>
+          <span id="queueLabel">⚡ Generate All Images</span>
+          <div class="spinner hidden" id="queueSpinner"></div>
+        </button>
+        <button id="stopBtn" class="stop-btn hidden" style="margin-top:1.25rem">■ Stop</button>
+      </div>
+
+      <div class="progress-wrap hidden" id="progressWrap">
+        <div class="progress-bar-track">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <span class="progress-text" id="progressText">0 / 10</span>
+      </div>
+    </section>
+
+    <!-- ── STEP 4: Export ── -->
+    <section class="builder-step hidden" id="step4">
+      <div class="step-header">
+        <span class="step-num">④</span>
+        <h2>Export Storybook</h2>
+      </div>
+      <p class="section-sub">All images generated — save, export, or print below.</p>
+      <div class="export-actions">
+        <button id="exportBtn" class="generate-btn" style="max-width:240px">
+          <span>📖 Export as HTML</span>
+        </button>
+        <button id="printBtn" class="generate-btn" style="max-width:240px;background:linear-gradient(135deg,#2a6040,#174d2e)">
+          <span id="printLabel">🖨 Print / Save as PDF</span>
+          <div class="spinner hidden" id="printSpinner"></div>
+        </button>
+        <button id="galleryBtn" class="generate-btn" style="max-width:240px;background:linear-gradient(135deg,#1f3a6e,#0f2040)">
+          <span id="galleryLabel">☁ Save to Gallery</span>
+          <div class="spinner hidden" id="gallerySpinner"></div>
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="storybook_print.js"></script>
+  <script src="book_builder.js"></script>
+</body>
+</html>

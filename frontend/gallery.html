@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gallery · MonkeyKing</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="gallery.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="header-title">
+        <span class="title-zh">齐天大圣</span>
+        <span class="title-en">MonkeyKing Story Studio</span>
+      </div>
+      <nav class="header-nav">
+        <a href="index.html" class="nav-link">Image Studio</a>
+        <a href="book_builder.html" class="nav-link">Book Builder</a>
+        <a href="gallery.html" class="nav-link active">Gallery</a>
+      </nav>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="gallery-main">
+
+    <div class="gallery-toolbar">
+      <h2 class="gallery-heading">Saved Storybooks</h2>
+      <button id="refreshBtn" class="project-btn">↺ Refresh</button>
+    </div>
+
+    <div id="galleryGrid" class="gallery-book-grid">
+      <p class="gallery-empty-msg" id="emptyMsg">Loading…</p>
+    </div>
+
+  </main>
+
+  <script src="storybook_print.js"></script>
+  <script src="gallery.js"></script>
+</body>
+</html>

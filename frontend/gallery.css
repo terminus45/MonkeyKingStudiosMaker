@@ -1,0 +1,127 @@
+/* ── Gallery page styles ── */
+
+.gallery-main {
+  flex: 1;
+  max-width: 1300px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.gallery-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.gallery-heading {
+  font-size: 1.1rem;
+  color: var(--paper-dark);
+  font-weight: 700;
+  letter-spacing: .04em;
+  flex: 1;
+}
+
+.gallery-book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.gallery-empty-msg {
+  color: var(--muted);
+  font-size: .9rem;
+  grid-column: 1 / -1;
+}
+
+/* Book card */
+.book-card {
+  background: var(--paper);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color .15s, transform .15s;
+}
+.book-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-2px);
+}
+
+.book-cover {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--paper-dark);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.book-cover-placeholder {
+  font-size: 3rem;
+  color: var(--muted);
+  opacity: .4;
+}
+
+.book-info {
+  padding: .85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  flex: 1;
+}
+.book-title-zh {
+  font-size: 1.1rem;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.book-title-en {
+  font-size: .78rem;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.book-meta {
+  font-size: .7rem;
+  color: var(--muted);
+  margin-top: .2rem;
+}
+
+.book-actions {
+  display: flex;
+  gap: .4rem;
+  padding: .75rem 1rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.book-action-btn {
+  flex: 1;
+  background: var(--ctrl-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .35rem .5rem;
+  font-size: .75rem;
+  cursor: pointer;
+  color: var(--ink-soft);
+  transition: border-color .15s, color .15s;
+  white-space: nowrap;
+  text-align: center;
+}
+.book-action-btn:hover { border-color: var(--gold); color: var(--gold); }
+.book-action-btn.danger:hover { border-color: var(--red); color: var(--red); }
+.book-action-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+@media (max-width: 600px) {
+  .gallery-book-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 400px) {
+  .gallery-book-grid { grid-template-columns: 1fr; }
+}

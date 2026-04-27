@@ -1,0 +1,345 @@
+/* ── Book Builder styles (extend style.css tokens) ── */
+
+/* Main layout */
+.builder-main {
+  flex: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 1.5rem 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+/* Step sections */
+.builder-step {
+  background: var(--paper);
+  border: 2px solid var(--gold);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+}
+.builder-step.hidden { display: none; }
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.project-actions {
+  margin-left: auto;
+  display: flex;
+  gap: .5rem;
+}
+.project-btn {
+  background: var(--ctrl-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .3rem .75rem;
+  font-size: .78rem;
+  cursor: pointer;
+  color: var(--ink-soft);
+  transition: border-color .15s, color .15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+.project-btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.project-btn:disabled { opacity: .4; cursor: not-allowed; }
+.danger-btn { border-color: var(--red) !important; color: var(--red) !important; }
+.danger-btn:hover:not(:disabled) { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; }
+.step-num {
+  width: 2rem; height: 2rem;
+  background: var(--gold);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; font-weight: 700;
+  flex-shrink: 0;
+}
+.step-header h2 {
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+
+.section-sub {
+  font-size: .85rem;
+  color: var(--muted);
+  margin: -.5rem 0 1rem;
+}
+
+.concept-row textarea {
+  width: 100%;
+  font-size: .9rem;
+  min-height: 100px;
+}
+
+.hint-text {
+  font-size: .8rem;
+  color: var(--muted);
+  margin-top: .5rem;
+  min-height: 1.2em;
+}
+
+/* Page grid */
+.page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin-top: .25rem;
+}
+
+.page-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+
+.card-thumb-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--paper-dark);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumb-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.thumb-content img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: .78rem;
+}
+.thumb-spinner {
+  position: absolute;
+  inset: 0;
+  background: rgba(253,246,232,.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Per-card progress bar */
+.card-progress {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(26,16,0,.75);
+  padding: .3rem .5rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.card-progress.hidden { display: none; }
+.card-progress-track {
+  flex: 1;
+  height: 5px;
+  background: rgba(255,255,255,.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.card-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--gold);
+  border-radius: 3px;
+  transition: width .25s ease;
+}
+.card-progress-label {
+  font-size: .65rem;
+  color: var(--paper-dark);
+  white-space: nowrap;
+  min-width: 2.8rem;
+  text-align: right;
+}
+
+.card-body {
+  padding: .9rem;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  flex: 1;
+}
+
+.card-page-num {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+
+.card-field label {
+  display: block;
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin-bottom: .2rem;
+}
+.card-field textarea {
+  width: 100%;
+  font-size: .82rem;
+  resize: vertical;
+  min-height: 2.4rem;
+}
+.card-field.zh-field textarea {
+  font-size: 1rem;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  min-height: 2rem;
+}
+.card-field.prompt-field {
+  border-top: 1px dashed var(--border);
+  padding-top: .6rem;
+}
+.card-field.prompt-field textarea {
+  min-height: 4rem;
+  font-size: .75rem;
+  color: var(--ink-soft);
+}
+
+/* Generation controls */
+.gen-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Queue button row */
+.queue-btn-row {
+  display: flex;
+  align-items: flex-end;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.stop-btn {
+  background: var(--ctrl-bg);
+  border: 2px solid var(--red);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-size: .9rem;
+  font-weight: 700;
+  padding: .75rem 1.25rem;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.stop-btn:hover { background: var(--red); color: #fff; }
+.stop-btn.hidden { display: none; }
+
+/* Progress */
+.progress-wrap {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.progress-wrap.hidden { display: none; }
+.progress-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--paper-dark);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--gold);
+  border-radius: 5px;
+  width: 0%;
+  transition: width .4s ease;
+}
+.progress-text {
+  font-size: .8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Table import ── */
+.import-divider {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: .75rem;
+}
+.import-divider::before,
+.import-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.import-section {
+  margin-top: .5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--ctrl-bg);
+}
+.import-summary {
+  padding: .6rem .85rem;
+  cursor: pointer;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  list-style: none;
+  user-select: none;
+}
+.import-summary::-webkit-details-marker { display: none; }
+.import-summary::before {
+  content: '▸ ';
+  transition: transform .2s;
+  display: inline-block;
+}
+.import-section[open] .import-summary::before { transform: rotate(90deg); }
+
+.import-body {
+  padding: .85rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+.import-titles {
+  display: flex;
+  gap: .65rem;
+  flex-wrap: wrap;
+}
+
+.export-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+@media (max-width: 700px) {
+  .gen-controls { grid-template-columns: 1fr; }
+  .page-grid { grid-template-columns: 1fr; }
+  .header-nav { display: none; }
+}
