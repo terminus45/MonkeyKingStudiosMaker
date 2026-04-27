@@ -80,11 +80,27 @@ class LoadRequest(BaseModel):
     model_num: Optional[int] = None
 
 
+# ── Generation status (shared across requests) ────────────────────────────────
+
+_gen_status: dict = {
+    "generating": False,
+    "step": 0,
+    "total": 0,
+    "last_filename": None,
+    "last_seed": None,
+    "last_model": None,
+}
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {"status": "ok", "loaded_model": generator.loaded_model_id}
+
+
+@app.get("/status")
+def generation_status():
+    return _gen_status
 
 
 @app.get("/loras")
@@ -196,6 +212,8 @@ async def generate_stream(req: GenerateRequest):
     queue: asyncio.Queue = asyncio.Queue()
 
     def run():
+        _gen_status.update({"generating": True, "step": 0, "total": req.steps,
+                            "last_filename": None, "last_seed": None, "last_model": None})
         try:
             if req.model_num is not None:
                 generator.load_by_number(req.model_num)
@@ -206,9 +224,12 @@ async def generate_stream(req: GenerateRequest):
                 loras = _resolve_loras(req)
             except HTTPException as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"error": e.detail})
+                _gen_status["generating"] = False
                 return
 
             def on_step(step: int, total: int):
+                _gen_status["step"] = step
+                _gen_status["total"] = total
                 loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
 
             image, used_seed = generator.generate(
@@ -225,6 +246,12 @@ async def generate_stream(req: GenerateRequest):
 
             filename = f"{uuid.uuid4().hex}.png"
             generator.save(image, filename)
+            _gen_status.update({
+                "generating": False,
+                "last_filename": filename,
+                "last_seed": used_seed,
+                "last_model": generator.loaded_model_id,
+            })
             loop.call_soon_threadsafe(queue.put_nowait, {
                 "done": True,
                 "filename": filename,
@@ -232,6 +259,7 @@ async def generate_stream(req: GenerateRequest):
                 "loaded_model": generator.loaded_model_id,
             })
         except Exception as e:
+            _gen_status["generating"] = False
             loop.call_soon_threadsafe(queue.put_nowait, {"error": str(e)})
 
     threading.Thread(target=run, daemon=True).start()

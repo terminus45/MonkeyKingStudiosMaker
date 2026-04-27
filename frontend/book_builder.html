@@ -128,9 +128,28 @@
         </div>
 
         <div class="control-group">
+          <label>Style Prompt</label>
+          <textarea id="genStylePrompt" rows="2" placeholder="Visual style applied to every image…"></textarea>
+          <div class="presets" id="stylePresets" style="margin-top:.4rem">
+            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+            <button class="preset" data-suffix="">Clear</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label class="toggle-label" id="negToggle">Negative Prompt <span class="toggle-arrow">▸</span></label>
+          <textarea id="genNegPrompt" rows="2" class="collapsed"
+            placeholder="blurry, low quality…">blurry, low quality, watermark, text, deformed, ugly, bad anatomy</textarea>
+        </div>
+
+        <div class="control-group">
           <label>Canvas Size</label>
           <div class="presets" id="sizePresets">
             <button class="preset size-btn active" data-w="768" data-h="768">1:1</button>
+            <button class="preset size-btn" data-w="912" data-h="608">3:2</button>
             <button class="preset size-btn" data-w="1024" data-h="576">16:9</button>
             <button class="preset size-btn" data-w="576" data-h="1024">Portrait</button>
           </div>
@@ -170,6 +189,15 @@
             <input type="range" id="loraScale2" min="0" max="2" step="0.05" value="1.0">
           </div>
         </div>
+      </div>
+
+      <div class="settings-row" style="margin-top:.75rem">
+        <button id="saveGenSettingsBtn" class="settings-btn">↓ Save Settings</button>
+        <label class="settings-btn">
+          ↑ Load Settings
+          <input type="file" id="loadGenSettingsFile" accept=".json" style="display:none">
+        </label>
+        <button id="resetGenSettingsBtn" class="settings-btn settings-btn--muted">Reset</button>
       </div>
 
       <div class="queue-btn-row">

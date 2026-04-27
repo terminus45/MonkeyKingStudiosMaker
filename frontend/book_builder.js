@@ -28,6 +28,9 @@ const pageGrid        = document.getElementById('pageGrid');
 
 const step3           = document.getElementById('step3');
 const modelSel        = document.getElementById('modelSelect');
+const genStylePrompt  = document.getElementById('genStylePrompt');
+const genNegPrompt    = document.getElementById('genNegPrompt');
+const negToggle       = document.getElementById('negToggle');
 const stepsEl         = document.getElementById('steps');
 const stepsVal        = document.getElementById('stepsVal');
 const cfgEl           = document.getElementById('cfg');
@@ -118,11 +121,25 @@ loraScaleEl2.addEventListener('input', () => {
   loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
 });
 
-// ── Style presets — fill the style textarea ────────────────────────────────
+// ── Style presets (Step 1 decompose style) ─────────────────────────────────
 document.getElementById('stylePresets').addEventListener('click', e => {
   const btn = e.target.closest('.preset');
-  if (!btn) return;
+  if (!btn || btn.closest('#step3')) return;   // ignore Step 3 presets here
   stylePromptInput.value = btn.dataset.suffix;
+});
+
+// ── Step 3 gen style presets ───────────────────────────────────────────────
+step3.addEventListener('click', e => {
+  const btn = e.target.closest('#step3 #stylePresets .preset');
+  if (!btn) return;
+  genStylePrompt.value = btn.dataset.suffix;
+  saveGenSettings();
+});
+
+// ── Negative prompt toggle ─────────────────────────────────────────────────
+negToggle.addEventListener('click', () => {
+  const open = negToggle.classList.toggle('open');
+  genNegPrompt.classList.toggle('collapsed', !open);
 });
 
 // ── Size presets + custom dimension inputs ─────────────────────────────────
@@ -155,8 +172,97 @@ widthInput.addEventListener('change',  onDimInput);
 heightInput.addEventListener('change', onDimInput);
 
 // ── Sliders ────────────────────────────────────────────────────────────────
-stepsEl.addEventListener('input', () => stepsVal.textContent = stepsEl.value);
-cfgEl.addEventListener('input',   () => cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1));
+stepsEl.addEventListener('input', () => { stepsVal.textContent = stepsEl.value; saveGenSettings(); });
+cfgEl.addEventListener('input',   () => { cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1); saveGenSettings(); });
+
+// ── Gen settings persistence ───────────────────────────────────────────────
+const GEN_KEY = 'monkeyking_gen_settings';   // shared with Image Studio
+
+function saveGenSettings() {
+  const settings = {
+    modelNum:    modelSel.value,
+    canvasW, canvasH,
+    steps:       stepsEl.value,
+    cfg:         cfgEl.value,
+    stylePrompt: genStylePrompt.value,
+    negPrompt:   genNegPrompt.value,
+    loraNum:     loraSelect.value,
+    loraScale:   loraScaleEl.value,
+    loraNum2:    loraSelect2.value,
+    loraScale2:  loraScaleEl2.value,
+  };
+  localStorage.setItem(GEN_KEY, JSON.stringify(settings));
+}
+
+function restoreGenSettings() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(GEN_KEY) || 'null'); } catch { return; }
+  if (!s) return;
+  if (s.modelNum)  modelSel.value = s.modelNum;
+  if (s.canvasW && s.canvasH) setCanvasSize(parseInt(s.canvasW), parseInt(s.canvasH));
+  if (s.steps) { stepsEl.value = s.steps; stepsVal.textContent = s.steps; }
+  if (s.cfg)   { cfgEl.value   = s.cfg;   cfgVal.textContent   = parseFloat(s.cfg).toFixed(1); }
+  if (s.stylePrompt !== undefined) genStylePrompt.value = s.stylePrompt;
+  if (s.negPrompt   !== undefined) genNegPrompt.value   = s.negPrompt;
+  if (s.loraNum) {
+    loraSelect.value = s.loraNum;
+    loraScaleEl.value = s.loraScale ?? '1.0';
+    loraScaleVal.textContent = parseFloat(s.loraScale ?? 1).toFixed(2);
+    loraScaleRow.classList.remove('hidden');
+  }
+  if (s.loraNum2) {
+    loraSelect2.value = s.loraNum2;
+    loraScaleEl2.value = s.loraScale2 ?? '1.0';
+    loraScaleVal2.textContent = parseFloat(s.loraScale2 ?? 1).toFixed(2);
+    loraScaleRow2.classList.remove('hidden');
+  }
+}
+
+// Save on control changes
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2].forEach(el =>
+  el.addEventListener('change', saveGenSettings));
+[widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
+[genStylePrompt, genNegPrompt].forEach(el => el.addEventListener('input', saveGenSettings));
+
+// Export / Import / Reset
+document.getElementById('saveGenSettingsBtn').addEventListener('click', () => {
+  saveGenSettings();
+  const settings = JSON.parse(localStorage.getItem(GEN_KEY) || '{}');
+  const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'gen-settings.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('loadGenSettingsFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const incoming = JSON.parse(ev.target.result);
+      localStorage.setItem(GEN_KEY, JSON.stringify(incoming));
+      restoreGenSettings();
+    } catch {
+      alert('Invalid settings file.');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
+  if (!confirm('Reset generation settings to defaults?')) return;
+  localStorage.removeItem(GEN_KEY);
+  // Reset controls to defaults
+  setCanvasSize(768, 768);
+  stepsEl.value = 30; stepsVal.textContent = '30';
+  cfgEl.value = 7.0;  cfgVal.textContent = '7.0';
+  loraSelect.value  = ''; loraScaleEl.value  = '1.0'; loraScaleVal.textContent  = '1.00'; loraScaleRow.classList.add('hidden');
+  loraSelect2.value = ''; loraScaleEl2.value = '1.0'; loraScaleVal2.textContent = '1.00'; loraScaleRow2.classList.add('hidden');
+});
 
 // ── Decompose ──────────────────────────────────────────────────────────────
 decomposeBtn.addEventListener('click', async () => {
@@ -352,7 +458,7 @@ queueBtn.addEventListener('click', async () => {
     }
 
     const current    = readCard(pg.page);
-    const stylePart  = stylePromptInput.value.trim();
+    const stylePart  = genStylePrompt.value.trim();
     const prompt     = stylePart
       ? `${current.image_prompt}, ${stylePart}`
       : current.image_prompt;
@@ -363,7 +469,7 @@ queueBtn.addEventListener('click', async () => {
     try {
       const genBody = {
         prompt,
-        negative_prompt: 'blurry, low quality, watermark, text, deformed, ugly, bad anatomy',
+        negative_prompt: genNegPrompt.value.trim(),
         model_num: parseInt(modelSel.value) || undefined,
         steps: parseInt(stepsEl.value),
         guidance_scale: parseFloat(cfgEl.value),
@@ -753,6 +859,7 @@ loadProjectFile.addEventListener('change', async e => {
 (async () => {
   await checkHealth();
   await Promise.all([loadModels(), loadLoras()]);
+  restoreGenSettings();
 
   // Load a gallery book if linked from Gallery page; otherwise restore localStorage
   const params    = new URLSearchParams(window.location.search);

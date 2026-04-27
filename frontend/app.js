@@ -1,4 +1,6 @@
 const API = window.location.origin;
+const LS_KEY  = 'monkeyking_studio_state';
+const GEN_KEY = 'monkeyking_gen_settings';   // shared with Book Builder
 
 // ── State ──────────────────────────────────────────────────────────────────
 let canvasW = 1024, canvasH = 576;
@@ -170,6 +172,7 @@ async function generate() {
   const stylePart   = stylePromptEl.value.trim();
   const fullPrompt  = stylePart ? `${basePrompt}, ${stylePart}` : basePrompt;
 
+  _generating = true;
   setLoading(true);
   showProgress(0, parseInt(stepsEl.value));
 
@@ -247,11 +250,13 @@ async function generate() {
     };
 
     addToGallery(imgUrl, data.seed, modelShort);
+    saveState();
     await checkHealth();
 
   } catch (err) {
     alert(`Generation failed:\n${err.message}`);
   } finally {
+    _generating = false;
     setLoading(false);
     hideProgress();
   }
@@ -275,8 +280,8 @@ function setLoading(on) {
 }
 
 // ── Gallery ────────────────────────────────────────────────────────────────
-function addToGallery(url, seed, model) {
-  history.unshift({ url, seed, model });
+function addToGallery(url, seed, model, skipHistoryPush = false) {
+  if (!skipHistoryPush) history.unshift({ url, seed, model });
 
   const empty = gallery.querySelector('.gallery-empty');
   if (empty) empty.remove();
@@ -298,8 +303,202 @@ function addToGallery(url, seed, model) {
   gallery.prepend(img);
 }
 
+// ── Persistence ────────────────────────────────────────────────────────────
+
+// Gen settings (shared with Book Builder via GEN_KEY)
+function saveGenSettings() {
+  const settings = {
+    modelNum:    modelSel.value,
+    canvasW, canvasH,
+    steps:       stepsEl.value,
+    cfg:         cfgEl.value,
+    stylePrompt: stylePromptEl.value,
+    negPrompt:   negEl.value,
+    loraNum:     loraSelect.value,
+    loraScale:   loraScaleEl.value,
+    loraNum2:    loraSelect2.value,
+    loraScale2:  loraScaleEl2.value,
+  };
+  localStorage.setItem(GEN_KEY, JSON.stringify(settings));
+}
+
+function restoreGenSettings() {
+  let g;
+  try { g = JSON.parse(localStorage.getItem(GEN_KEY) || 'null'); } catch { return; }
+  if (!g) return;
+  if (g.modelNum) modelSel.value = g.modelNum;
+  if (g.canvasW && g.canvasH) setCanvasSize(parseInt(g.canvasW), parseInt(g.canvasH));
+  if (g.steps) { stepsEl.value = g.steps; stepsVal.textContent = g.steps; }
+  if (g.cfg)   { cfgEl.value   = g.cfg;   cfgVal.textContent   = parseFloat(g.cfg).toFixed(1); }
+  if (g.stylePrompt !== undefined) stylePromptEl.value = g.stylePrompt;
+  if (g.negPrompt   !== undefined) negEl.value         = g.negPrompt;
+  if (g.loraNum) {
+    loraSelect.value = g.loraNum;
+    loraScaleEl.value = g.loraScale ?? '1.0';
+    loraScaleVal.textContent = parseFloat(g.loraScale ?? 1).toFixed(2);
+    loraScaleRow.style.display = 'flex';
+  }
+  if (g.loraNum2) {
+    loraSelect2.value = g.loraNum2;
+    loraScaleEl2.value = g.loraScale2 ?? '1.0';
+    loraScaleVal2.textContent = parseFloat(g.loraScale2 ?? 1).toFixed(2);
+    loraScaleRow2.style.display = 'flex';
+  }
+}
+
+// Page-specific state (prompt, style, neg, seed, history)
+function saveState() {
+  const state = {
+    prompt:      promptEl.value,
+    stylePrompt: stylePromptEl.value,
+    negPrompt:   negEl.value,
+    negOpen:     negToggle.classList.contains('open'),
+    seed:        seedEl.value,
+    history:     history.slice(0, 30),
+  };
+  localStorage.setItem(LS_KEY, JSON.stringify(state));
+  saveGenSettings();
+}
+
+function restoreState() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch { return; }
+  if (s) {
+    if (s.prompt)      promptEl.value      = s.prompt;
+    if (s.stylePrompt) stylePromptEl.value = s.stylePrompt;
+    if (s.negPrompt !== undefined) negEl.value = s.negPrompt;
+    if (s.negOpen) {
+      negToggle.classList.add('open');
+      negEl.classList.remove('collapsed');
+    }
+    if (s.seed !== undefined) seedEl.value = s.seed;
+    if (s.history?.length) {
+      history = s.history;
+      history.forEach(({ url, seed, model }) => addToGallery(url, seed, model, true));
+    }
+  }
+  restoreGenSettings();
+}
+
+// Auto-save on every meaningful control change
+[promptEl].forEach(el => el.addEventListener('input', saveState));
+[stylePromptEl, negEl].forEach(el => el.addEventListener('input', saveGenSettings));
+[seedEl].forEach(el => el.addEventListener('change', saveState));
+[stepsEl, cfgEl, widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2].forEach(el =>
+  el.addEventListener('change', saveGenSettings));
+
+// ── Export / Import / Reset settings ───────────────────────────────────────
+document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+  saveGenSettings();
+  const settings = JSON.parse(localStorage.getItem(GEN_KEY) || '{}');
+  const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'gen-settings.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('loadSettingsFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      localStorage.setItem(GEN_KEY, JSON.stringify(JSON.parse(ev.target.result)));
+      restoreGenSettings();
+    } catch {
+      alert('Invalid settings file.');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+document.getElementById('resetSettingsBtn').addEventListener('click', () => {
+  if (!confirm('Reset generation settings to defaults?')) return;
+  localStorage.removeItem(GEN_KEY);
+  location.reload();
+});
+
+// ── Generation status polling (reconnect after navigation) ──────────────────
+let _pollInterval = null;
+
+async function checkAndReattach() {
+  let status;
+  try {
+    status = await (await fetch(`${API}/status`)).json();
+  } catch { return; }
+
+  if (status.generating) {
+    // Job is running — show progress and poll until done
+    setLoading(true);
+    showProgress(status.step, status.total);
+    _pollInterval = setInterval(async () => {
+      let s;
+      try { s = await (await fetch(`${API}/status`)).json(); } catch { return; }
+      if (s.generating) {
+        showProgress(s.step, s.total);
+      } else {
+        clearInterval(_pollInterval);
+        _pollInterval = null;
+        setLoading(false);
+        hideProgress();
+        if (s.last_filename) {
+          const url = `${API}/image/${s.last_filename}`;
+          const modelShort = (s.last_model ?? '').split('/').pop().replace('.safetensors', '');
+          placeholder.classList.add('hidden');
+          outputImg.src = url;
+          outputImg.classList.remove('hidden');
+          outputMeta.classList.remove('hidden');
+          metaSeed.textContent  = `Seed: ${s.last_seed}`;
+          metaModel.textContent = `Model: ${modelShort}`;
+          metaSize.textContent  = `${canvasW}×${canvasH}`;
+          reuseBtn.onclick = () => { seedEl.value = s.last_seed; };
+          downloadBtn.onclick = () => {
+            const a = document.createElement('a');
+            a.href = url; a.download = s.last_filename; a.click();
+          };
+          addToGallery(url, s.last_seed, modelShort);
+          saveState();
+          await checkHealth();
+        }
+      }
+    }, 600);
+  } else if (status.last_filename) {
+    // Job finished while we were away — surface the result if not already shown
+    const url = `${API}/image/${status.last_filename}`;
+    if (!history.some(h => h.url === url)) {
+      const modelShort = (status.last_model ?? '').split('/').pop().replace('.safetensors', '');
+      placeholder.classList.add('hidden');
+      outputImg.src = url;
+      outputImg.classList.remove('hidden');
+      outputMeta.classList.remove('hidden');
+      metaSeed.textContent  = `Seed: ${status.last_seed}`;
+      metaModel.textContent = `Model: ${modelShort}`;
+      metaSize.textContent  = `${canvasW}×${canvasH}`;
+      reuseBtn.onclick = () => { seedEl.value = status.last_seed; };
+      downloadBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = url; a.download = status.last_filename; a.click();
+      };
+      addToGallery(url, status.last_seed, modelShort);
+      saveState();
+    }
+  }
+}
+
+// Warn before leaving mid-generation
+let _generating = false;
+window.addEventListener('beforeunload', e => {
+  if (_generating) { e.preventDefault(); e.returnValue = ''; }
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
   await Promise.all([loadModels(), loadLoras()]);
+  restoreState();
+  await checkAndReattach();
 })();

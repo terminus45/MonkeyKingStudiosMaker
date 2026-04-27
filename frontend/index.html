@@ -88,6 +88,7 @@
         <label>Canvas Size</label>
         <div class="presets" id="sizePresets">
           <button class="preset size-btn active" data-w="1024" data-h="576">16:9</button>
+          <button class="preset size-btn" data-w="912" data-h="608">3:2</button>
           <button class="preset size-btn" data-w="768" data-h="768">1:1</button>
           <button class="preset size-btn" data-w="576" data-h="1024">Portrait</button>
           <button class="preset size-btn" data-w="512" data-h="512">512²</button>
@@ -118,6 +119,15 @@
           <button id="randSeed" title="Randomise">⚄</button>
         </div>
       </section>
+
+      <div class="settings-row">
+        <button id="saveSettingsBtn" class="settings-btn" title="Export settings to a JSON file">↓ Save Settings</button>
+        <label class="settings-btn" title="Import settings from a JSON file">
+          ↑ Load Settings
+          <input type="file" id="loadSettingsFile" accept=".json" style="display:none">
+        </label>
+        <button id="resetSettingsBtn" class="settings-btn settings-btn--muted" title="Clear saved settings and reset to defaults">Reset</button>
+      </div>
 
       <button id="generateBtn" class="generate-btn">
         <span id="generateLabel">Generate</span>
