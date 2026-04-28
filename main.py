@@ -65,6 +65,8 @@ class GenerateRequest(BaseModel):
     width: int = Field(DEFAULT_WIDTH, ge=64, le=2048)
     height: int = Field(DEFAULT_HEIGHT, ge=64, le=2048)
     seed: int = Field(DEFAULT_SEED, ge=-1)
+    sampler: Optional[str] = None
+    clip_skip: int = Field(1, ge=1, le=12)
     return_base64: bool = False
 
 
@@ -90,6 +92,12 @@ _gen_status: dict = {
     "last_seed": None,
     "last_model": None,
 }
+_gen_status_lock = threading.Lock()
+
+
+def _status_update(patch: dict):
+    with _gen_status_lock:
+        _gen_status.update(patch)
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -100,7 +108,8 @@ def health():
 
 @app.get("/status")
 def generation_status():
-    return _gen_status
+    with _gen_status_lock:
+        return dict(_gen_status)
 
 
 @app.get("/loras")
@@ -183,6 +192,8 @@ def generate(req: GenerateRequest):
             height=req.height,
             seed=req.seed,
             loras=loras,
+            sampler=req.sampler,
+            clip_skip=req.clip_skip,
         )
 
         filename = f"{uuid.uuid4().hex}.png"
@@ -212,8 +223,8 @@ async def generate_stream(req: GenerateRequest):
     queue: asyncio.Queue = asyncio.Queue()
 
     def run():
-        _gen_status.update({"generating": True, "step": 0, "total": req.steps,
-                            "last_filename": None, "last_seed": None, "last_model": None})
+        _status_update({"generating": True, "step": 0, "total": req.steps,
+                        "last_filename": None, "last_seed": None, "last_model": None})
         try:
             if req.model_num is not None:
                 generator.load_by_number(req.model_num)
@@ -224,13 +235,15 @@ async def generate_stream(req: GenerateRequest):
                 loras = _resolve_loras(req)
             except HTTPException as e:
                 loop.call_soon_threadsafe(queue.put_nowait, {"error": e.detail})
-                _gen_status["generating"] = False
+                _status_update({"generating": False})
                 return
 
             def on_step(step: int, total: int):
-                _gen_status["step"] = step
-                _gen_status["total"] = total
-                loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
+                try:
+                    _status_update({"step": step, "total": total})
+                    loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
+                except Exception:
+                    pass
 
             image, used_seed = generator.generate(
                 prompt=req.prompt,
@@ -242,11 +255,13 @@ async def generate_stream(req: GenerateRequest):
                 seed=req.seed,
                 loras=loras,
                 step_callback=on_step,
+                sampler=req.sampler,
+                clip_skip=req.clip_skip,
             )
 
             filename = f"{uuid.uuid4().hex}.png"
             generator.save(image, filename)
-            _gen_status.update({
+            _status_update({
                 "generating": False,
                 "last_filename": filename,
                 "last_seed": used_seed,
@@ -259,7 +274,7 @@ async def generate_stream(req: GenerateRequest):
                 "loaded_model": generator.loaded_model_id,
             })
         except Exception as e:
-            _gen_status["generating"] = False
+            _status_update({"generating": False})
             loop.call_soon_threadsafe(queue.put_nowait, {"error": str(e)})
 
     threading.Thread(target=run, daemon=True).start()
@@ -368,6 +383,7 @@ def decompose(req: DecomposeRequest):
                 }
             ],
             messages=[{"role": "user", "content": user_content}],
+            timeout=120,
         ) as stream:
             msg = stream.get_final_message()
     except anthropic.APIError as e:
@@ -386,10 +402,13 @@ def decompose(req: DecomposeRequest):
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        m = re.search(r"\{[\s\S]*\}", raw)
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
             raise HTTPException(status_code=500, detail="Claude returned non-JSON output.")
-        data = json.loads(m.group(0))
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Claude returned non-JSON output.")
 
     return data
 
@@ -397,6 +416,8 @@ def decompose(req: DecomposeRequest):
 @app.get("/image/{filename}")
 def get_image(filename: str):
     from config import OUTPUT_DIR
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Image not found")

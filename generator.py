@@ -7,11 +7,30 @@ import torch
 from diffusers import (
     StableDiffusionPipeline,
     StableDiffusionXLPipeline,
+    DDIMScheduler,
     DPMSolverMultistepScheduler,
+    DPMSolverSDEScheduler,
+    EulerAncestralDiscreteScheduler,
+    EulerDiscreteScheduler,
+    HeunDiscreteScheduler,
+    LMSDiscreteScheduler,
+    UniPCMultistepScheduler,
 )
+
 from PIL import Image
 
 from config import MODEL_ID, MODEL_CACHE_DIR, LORA_DIR, DEVICE, OUTPUT_DIR
+
+SAMPLER_MAP: dict[str, type] = {
+    "dpm++2m":   DPMSolverMultistepScheduler,
+    "euler_a":   EulerAncestralDiscreteScheduler,
+    "euler":     EulerDiscreteScheduler,
+    "ddim":      DDIMScheduler,
+    "heun":      HeunDiscreteScheduler,
+    "dpm++_sde": DPMSolverSDEScheduler,
+    "unipc":     UniPCMultistepScheduler,
+    "lms":       LMSDiscreteScheduler,
+}
 
 # SDXL safetensors are ~6+ GB; SD 1.5 are ~2 GB
 _SDXL_SIZE_THRESHOLD_GB = 4.0
@@ -102,6 +121,7 @@ class ImageGenerator:
         self.loaded_model_id: Optional[str] = None
         self._active_loras: list[dict] = []  # [{path, scale}, ...]
         self._fused: bool = False             # True when a LoRA has been fused into weights
+        self._current_sampler: str = "dpm++2m"
 
     def load(self, model_id: str = MODEL_ID):
         if self.loaded_model_id == model_id and self.pipeline is not None and not self._fused:
@@ -125,6 +145,7 @@ class ImageGenerator:
         self.loaded_model_id = model_id
         self._active_loras = []
         self._fused = False
+        self._current_sampler = "dpm++2m"
 
     def load_by_number(self, num: int):
         models = discover_models()
@@ -189,6 +210,14 @@ class ImageGenerator:
 
         self._active_loras = loras
 
+    def _apply_sampler(self, sampler: str):
+        """Swap the pipeline scheduler if the requested sampler has changed."""
+        cls = SAMPLER_MAP.get(sampler)
+        if cls is None or sampler == self._current_sampler:
+            return
+        self.pipeline.scheduler = cls.from_config(self.pipeline.scheduler.config)
+        self._current_sampler = sampler
+
     def generate(
         self,
         prompt: str,
@@ -200,12 +229,17 @@ class ImageGenerator:
         seed: int = -1,
         loras: Optional[list] = None,   # [{"path": str, "scale": float}, ...]
         step_callback=None,             # callable(step: int, total: int)
+        sampler: Optional[str] = None,
+        clip_skip: int = 1,
     ) -> tuple[Image.Image, int]:
         if self.pipeline is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
         loras = [l for l in (loras or []) if l.get("path")]
         self._apply_loras(loras)
+
+        if sampler:
+            self._apply_sampler(sampler)
 
         actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
         gen = torch.Generator(device=DEVICE).manual_seed(actual_seed)
@@ -219,6 +253,10 @@ class ImageGenerator:
             height=height,
             generator=gen,
         )
+
+        # clip_skip=1 is the diffusers default (pass None to keep default behaviour).
+        if clip_skip > 1:
+            call_kwargs["clip_skip"] = clip_skip
 
         # Apply scale for the last (unfused) active LoRA via cross_attention_kwargs.
         if self._active_loras:

@@ -2,7 +2,7 @@ const API = window.location.origin;
 
 // ── State ──────────────────────────────────────────────────────────────────
 let storyData = null;   // DecomposeResponse from server
-let canvasW = 768, canvasH = 768;
+let canvasW = 512, canvasH = 512;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const conceptInput      = document.getElementById('conceptInput');
@@ -35,6 +35,8 @@ const stepsEl         = document.getElementById('steps');
 const stepsVal        = document.getElementById('stepsVal');
 const cfgEl           = document.getElementById('cfg');
 const cfgVal          = document.getElementById('cfgVal');
+const samplerSel      = document.getElementById('samplerSelect');
+const clipSkipSel     = document.getElementById('clipSkipSelect');
 const loraSelect      = document.getElementById('loraSelect');
 const loraScaleRow    = document.getElementById('loraScaleRow');
 const loraScaleEl     = document.getElementById('loraScale');
@@ -172,8 +174,10 @@ widthInput.addEventListener('change',  onDimInput);
 heightInput.addEventListener('change', onDimInput);
 
 // ── Sliders ────────────────────────────────────────────────────────────────
-stepsEl.addEventListener('input', () => { stepsVal.textContent = stepsEl.value; saveGenSettings(); });
-cfgEl.addEventListener('input',   () => { cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1); saveGenSettings(); });
+stepsEl.addEventListener('input',  () => { stepsVal.textContent = stepsEl.value; });
+stepsEl.addEventListener('change', () => { saveGenSettings(); });
+cfgEl.addEventListener('input',    () => { cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1); });
+cfgEl.addEventListener('change',   () => { saveGenSettings(); });
 
 // ── Gen settings persistence ───────────────────────────────────────────────
 const GEN_KEY = 'monkeyking_gen_settings';   // shared with Image Studio
@@ -190,6 +194,8 @@ function saveGenSettings() {
     loraScale:   loraScaleEl.value,
     loraNum2:    loraSelect2.value,
     loraScale2:  loraScaleEl2.value,
+    sampler:     samplerSel.value,
+    clipSkip:    clipSkipSel.value,
   };
   localStorage.setItem(GEN_KEY, JSON.stringify(settings));
 }
@@ -216,10 +222,12 @@ function restoreGenSettings() {
     loraScaleVal2.textContent = parseFloat(s.loraScale2 ?? 1).toFixed(2);
     loraScaleRow2.classList.remove('hidden');
   }
+  if (s.sampler)  samplerSel.value  = s.sampler;
+  if (s.clipSkip) clipSkipSel.value = s.clipSkip;
 }
 
 // Save on control changes
-[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2].forEach(el =>
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel].forEach(el =>
   el.addEventListener('change', saveGenSettings));
 [widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
 [genStylePrompt, genNegPrompt].forEach(el => el.addEventListener('input', saveGenSettings));
@@ -257,7 +265,7 @@ document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
   if (!confirm('Reset generation settings to defaults?')) return;
   localStorage.removeItem(GEN_KEY);
   // Reset controls to defaults
-  setCanvasSize(768, 768);
+  setCanvasSize(512, 512);
   stepsEl.value = 30; stepsVal.textContent = '30';
   cfgEl.value = 7.0;  cfgVal.textContent = '7.0';
   loraSelect.value  = ''; loraScaleEl.value  = '1.0'; loraScaleVal.textContent  = '1.00'; loraScaleRow.classList.add('hidden');
@@ -476,6 +484,8 @@ queueBtn.addEventListener('click', async () => {
         width: canvasW,
         height: canvasH,
         seed: -1,
+        sampler: samplerSel.value,
+        clip_skip: parseInt(clipSkipSel.value),
       };
       if (loraSelect.value) {
         genBody.lora_num   = parseInt(loraSelect.value);
@@ -507,7 +517,8 @@ queueBtn.addEventListener('click', async () => {
         buf = lines.pop();
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const evt = JSON.parse(line.slice(6));
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch { continue; }
           if (evt.error) throw new Error(evt.error);
           if (evt.done) { result = evt; break outer; }
           showCardProgress(pg.page, evt.step, evt.total);
@@ -894,16 +905,14 @@ async function restoreProject(project) {
   saveProjectBtn.disabled = false;
 
   if (project.generated_images) {
-    await Promise.all(
+    await Promise.allSettled(
       Object.entries(project.generated_images).map(async ([pageNum, filename]) => {
         const url = `${API}/image/${filename}`;
-        try {
-          const res = await fetch(url, { method: 'HEAD' });
-          if (res.ok) {
-            generatedImages[parseInt(pageNum)] = { filename, url };
-            showThumbImage(parseInt(pageNum), url);
-          }
-        } catch { /* image gone */ }
+        const res = await fetch(url, { method: 'HEAD' });
+        if (res.ok) {
+          generatedImages[parseInt(pageNum)] = { filename, url };
+          showThumbImage(parseInt(pageNum), url);
+        }
       })
     );
   }

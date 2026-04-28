@@ -26,7 +26,8 @@ async function fetchImagesAsBase64(generatedImages, apiBase) {
         const res  = await fetch(`${apiBase}/image/${filename}`);
         const blob = await res.blob();
         imageB64[parseInt(pageNum)] = await blobToDataURL(blob);
-      } catch {
+      } catch (err) {
+        console.error(`Failed to load image for page ${pageNum} (${filename}):`, err);
         imageB64[parseInt(pageNum)] = null;
       }
     })

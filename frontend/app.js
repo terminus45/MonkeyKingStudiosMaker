@@ -3,7 +3,7 @@ const LS_KEY  = 'monkeyking_studio_state';
 const GEN_KEY = 'monkeyking_gen_settings';   // shared with Book Builder
 
 // ── State ──────────────────────────────────────────────────────────────────
-let canvasW = 1024, canvasH = 576;
+let canvasW = 512, canvasH = 512;
 let history = [];
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ const loraScaleVal2 = document.getElementById('loraScaleVal2');
 const statusDot     = document.getElementById('statusDot');
 const statusLabel   = document.getElementById('statusLabel');
 const negToggle     = document.getElementById('negToggle');
+const samplerSel    = document.getElementById('samplerSelect');
+const clipSkipSel   = document.getElementById('clipSkipSelect');
 
 // ── Server status ──────────────────────────────────────────────────────────
 async function checkHealth() {
@@ -154,7 +156,7 @@ cfgEl.addEventListener('input',   () => cfgVal.textContent  = parseFloat(cfgEl.v
 
 // ── Seed randomise ─────────────────────────────────────────────────────────
 document.getElementById('randSeed').addEventListener('click', () => {
-  seedEl.value = Math.floor(Math.random() * 2 ** 32);
+  seedEl.value = Math.floor(Math.random() * (2 ** 32 - 1));
 });
 
 // ── Negative prompt toggle ─────────────────────────────────────────────────
@@ -186,6 +188,8 @@ async function generate() {
       width:           canvasW,
       height:          canvasH,
       seed:            parseInt(seedEl.value),
+      sampler:         samplerSel.value,
+      clip_skip:       parseInt(clipSkipSel.value),
     };
     if (loraSelect.value) {
       body.lora_num   = parseInt(loraSelect.value);
@@ -220,7 +224,8 @@ async function generate() {
       buf = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const evt = JSON.parse(line.slice(6));
+        let evt;
+        try { evt = JSON.parse(line.slice(6)); } catch { continue; }
         if (evt.error) throw new Error(evt.error);
         if (evt.done) { data = evt; break; }
         showProgress(evt.step, evt.total);
@@ -318,6 +323,8 @@ function saveGenSettings() {
     loraScale:   loraScaleEl.value,
     loraNum2:    loraSelect2.value,
     loraScale2:  loraScaleEl2.value,
+    sampler:     samplerSel.value,
+    clipSkip:    clipSkipSel.value,
   };
   localStorage.setItem(GEN_KEY, JSON.stringify(settings));
 }
@@ -344,6 +351,8 @@ function restoreGenSettings() {
     loraScaleVal2.textContent = parseFloat(g.loraScale2 ?? 1).toFixed(2);
     loraScaleRow2.style.display = 'flex';
   }
+  if (g.sampler)  samplerSel.value  = g.sampler;
+  if (g.clipSkip) clipSkipSel.value = g.clipSkip;
 }
 
 // Page-specific state (prompt, style, neg, seed, history)
@@ -385,7 +394,7 @@ function restoreState() {
 [stylePromptEl, negEl].forEach(el => el.addEventListener('input', saveGenSettings));
 [seedEl].forEach(el => el.addEventListener('change', saveState));
 [stepsEl, cfgEl, widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
-[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2].forEach(el =>
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel].forEach(el =>
   el.addEventListener('change', saveGenSettings));
 
 // ── Export / Import / Reset settings ───────────────────────────────────────

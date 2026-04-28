@@ -148,15 +148,16 @@
         <div class="control-group">
           <label>Canvas Size</label>
           <div class="presets" id="sizePresets">
-            <button class="preset size-btn active" data-w="768" data-h="768">1:1</button>
-            <button class="preset size-btn" data-w="912" data-h="608">3:2</button>
             <button class="preset size-btn" data-w="1024" data-h="576">16:9</button>
+            <button class="preset size-btn" data-w="912" data-h="608">3:2</button>
+            <button class="preset size-btn" data-w="768" data-h="768">1:1</button>
             <button class="preset size-btn" data-w="576" data-h="1024">Portrait</button>
+            <button class="preset size-btn active" data-w="512" data-h="512">512²</button>
           </div>
           <div class="size-dims-row">
-            <input type="number" id="widthInput"  value="768" min="64" max="2048" step="8">
+            <input type="number" id="widthInput"  value="512" min="64" max="2048" step="8">
             <span class="size-dims-x">×</span>
-            <input type="number" id="heightInput" value="768" min="64" max="2048" step="8">
+            <input type="number" id="heightInput" value="512" min="64" max="2048" step="8">
             <span class="size-dims-px">px</span>
           </div>
         </div>
@@ -170,6 +171,30 @@
             <label>Guidance <span id="cfgVal">7.0</span></label>
             <input type="range" id="cfg" min="1" max="20" step="0.5" value="7.0">
           </div>
+        </div>
+
+        <div class="control-group">
+          <label>Sampler</label>
+          <select id="samplerSelect">
+            <option value="dpm++2m">DPM++ 2M</option>
+            <option value="euler_a">Euler A</option>
+            <option value="euler">Euler</option>
+            <option value="ddim">DDIM</option>
+            <option value="heun">Heun</option>
+            <option value="dpm++_sde">DPM++ SDE</option>
+            <option value="unipc">UniPC</option>
+            <option value="lms">LMS</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>Clip Skip</label>
+          <select id="clipSkipSelect">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
         </div>
 
         <div class="control-group">
