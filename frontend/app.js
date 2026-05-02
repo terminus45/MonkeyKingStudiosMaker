@@ -5,6 +5,8 @@ const GEN_KEY = 'monkeyking_gen_settings';   // shared with Book Builder
 // ── State ──────────────────────────────────────────────────────────────────
 let canvasW = 512, canvasH = 512;
 let history = [];
+let provider = 'sd';
+let geminiAR = '1:1';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const promptEl      = document.getElementById('prompt');
@@ -43,8 +45,9 @@ const loraScaleVal2 = document.getElementById('loraScaleVal2');
 const statusDot     = document.getElementById('statusDot');
 const statusLabel   = document.getElementById('statusLabel');
 const negToggle     = document.getElementById('negToggle');
-const samplerSel    = document.getElementById('samplerSelect');
-const clipSkipSel   = document.getElementById('clipSkipSelect');
+const samplerSel      = document.getElementById('samplerSelect');
+const clipSkipSel     = document.getElementById('clipSkipSelect');
+const geminiModelSel  = document.getElementById('geminiModelSelect');
 
 // ── Server status ──────────────────────────────────────────────────────────
 async function checkHealth() {
@@ -150,6 +153,26 @@ function onDimInput() {
 widthInput.addEventListener('change',  onDimInput);
 heightInput.addEventListener('change', onDimInput);
 
+// ── Provider toggle ────────────────────────────────────────────────────────
+function setProvider(p, save = true) {
+  provider = p;
+  document.querySelectorAll('.provider-btn').forEach(b => b.classList.toggle('active', b.dataset.provider === p));
+  document.querySelectorAll('.sd-only').forEach(el => el.classList.toggle('hidden', p === 'gemini'));
+  document.querySelectorAll('.gemini-only').forEach(el => el.classList.toggle('hidden', p === 'sd'));
+  if (save) saveGenSettings();
+}
+document.querySelectorAll('.provider-btn').forEach(b => b.addEventListener('click', () => setProvider(b.dataset.provider)));
+
+// ── Gemini aspect ratio ────────────────────────────────────────────────────
+document.getElementById('geminiAspectPresets').addEventListener('click', e => {
+  const btn = e.target.closest('.ar-btn');
+  if (!btn) return;
+  document.querySelectorAll('.ar-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  geminiAR = btn.dataset.ar;
+  saveGenSettings();
+});
+
 // ── Sliders ────────────────────────────────────────────────────────────────
 stepsEl.addEventListener('input', () => stepsVal.textContent = stepsEl.value);
 cfgEl.addEventListener('input',   () => cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1));
@@ -169,35 +192,34 @@ negToggle.addEventListener('click', () => {
 generateBtn.addEventListener('click', generate);
 
 async function generate() {
-  const basePrompt  = promptEl.value.trim();
+  const basePrompt = promptEl.value.trim();
   if (!basePrompt) { promptEl.focus(); return; }
-  const stylePart   = stylePromptEl.value.trim();
-  const fullPrompt  = stylePart ? `${basePrompt}, ${stylePart}` : basePrompt;
 
   _generating = true;
   setLoading(true);
-  showProgress(0, parseInt(stepsEl.value));
+  showProgress(0, provider === 'sd' ? parseInt(stepsEl.value) : 1);
 
   try {
     const body = {
-      prompt:          fullPrompt,
+      prompt:          basePrompt,
+      style_prompt:    stylePromptEl.value.trim(),
       negative_prompt: negEl.value.trim(),
-      model_num:       parseInt(modelSel.value) || undefined,
-      steps:           parseInt(stepsEl.value),
-      guidance_scale:  parseFloat(cfgEl.value),
+      provider,
       width:           canvasW,
       height:          canvasH,
-      seed:            parseInt(seedEl.value),
-      sampler:         samplerSel.value,
-      clip_skip:       parseInt(clipSkipSel.value),
     };
-    if (loraSelect.value) {
-      body.lora_num   = parseInt(loraSelect.value);
-      body.lora_scale = parseFloat(loraScaleEl.value);
-    }
-    if (loraSelect2.value) {
-      body.lora_num_2   = parseInt(loraSelect2.value);
-      body.lora_scale_2 = parseFloat(loraScaleEl2.value);
+    if (provider === 'sd') {
+      body.model_num      = parseInt(modelSel.value) || undefined;
+      body.steps          = parseInt(stepsEl.value);
+      body.guidance_scale = parseFloat(cfgEl.value);
+      body.seed           = parseInt(seedEl.value);
+      body.sampler        = samplerSel.value;
+      body.clip_skip      = parseInt(clipSkipSel.value);
+      if (loraSelect.value)  { body.lora_num   = parseInt(loraSelect.value);  body.lora_scale   = parseFloat(loraScaleEl.value); }
+      if (loraSelect2.value) { body.lora_num_2 = parseInt(loraSelect2.value); body.lora_scale_2 = parseFloat(loraScaleEl2.value); }
+    } else {
+      body.gemini_model        = geminiModelSel.value;
+      body.gemini_aspect_ratio = geminiAR;
     }
 
     const res = await fetch(`${API}/generate/stream`, {
@@ -242,11 +264,13 @@ async function generate() {
     outputMeta.classList.remove('hidden');
 
     const modelShort = (data.loaded_model ?? '').split('/').pop().replace('.safetensors', '');
-    metaSeed.textContent  = `Seed: ${data.seed}`;
+    const isSd = (data.seed ?? -1) >= 0;
+    metaSeed.textContent  = isSd ? `Seed: ${data.seed}` : 'Gemini';
     metaModel.textContent = `Model: ${modelShort}`;
-    metaSize.textContent  = `${canvasW}×${canvasH}`;
+    metaSize.textContent  = isSd ? `${canvasW}×${canvasH}` : geminiAR;
 
-    reuseBtn.onclick = () => { seedEl.value = data.seed; };
+    reuseBtn.disabled = !isSd;
+    reuseBtn.onclick  = isSd ? () => { seedEl.value = data.seed; } : null;
     downloadBtn.onclick = () => {
       const a = document.createElement('a');
       a.href = imgUrl;
@@ -325,6 +349,9 @@ function saveGenSettings() {
     loraScale2:  loraScaleEl2.value,
     sampler:     samplerSel.value,
     clipSkip:    clipSkipSel.value,
+    provider,
+    geminiModel: geminiModelSel.value,
+    geminiAR,
   };
   localStorage.setItem(GEN_KEY, JSON.stringify(settings));
 }
@@ -353,6 +380,12 @@ function restoreGenSettings() {
   }
   if (g.sampler)  samplerSel.value  = g.sampler;
   if (g.clipSkip) clipSkipSel.value = g.clipSkip;
+  if (g.geminiModel) geminiModelSel.value = g.geminiModel;
+  if (g.geminiAR) {
+    geminiAR = g.geminiAR;
+    document.querySelectorAll('.ar-btn').forEach(b => b.classList.toggle('active', b.dataset.ar === g.geminiAR));
+  }
+  if (g.provider) setProvider(g.provider, false);
 }
 
 // Page-specific state (prompt, style, neg, seed, history)
@@ -394,7 +427,7 @@ function restoreState() {
 [stylePromptEl, negEl].forEach(el => el.addEventListener('input', saveGenSettings));
 [seedEl].forEach(el => el.addEventListener('change', saveState));
 [stepsEl, cfgEl, widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
-[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel].forEach(el =>
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel, geminiModelSel].forEach(el =>
   el.addEventListener('change', saveGenSettings));
 
 // ── Export / Import / Reset settings ───────────────────────────────────────
@@ -457,14 +490,16 @@ async function checkAndReattach() {
         if (s.last_filename) {
           const url = `${API}/image/${s.last_filename}`;
           const modelShort = (s.last_model ?? '').split('/').pop().replace('.safetensors', '');
+          const wasSd = (s.last_seed ?? -1) >= 0;
           placeholder.classList.add('hidden');
           outputImg.src = url;
           outputImg.classList.remove('hidden');
           outputMeta.classList.remove('hidden');
-          metaSeed.textContent  = `Seed: ${s.last_seed}`;
+          metaSeed.textContent  = wasSd ? `Seed: ${s.last_seed}` : 'Gemini';
           metaModel.textContent = `Model: ${modelShort}`;
-          metaSize.textContent  = `${canvasW}×${canvasH}`;
-          reuseBtn.onclick = () => { seedEl.value = s.last_seed; };
+          metaSize.textContent  = wasSd ? `${canvasW}×${canvasH}` : '—';
+          reuseBtn.disabled = !wasSd;
+          reuseBtn.onclick  = wasSd ? () => { seedEl.value = s.last_seed; } : null;
           downloadBtn.onclick = () => {
             const a = document.createElement('a');
             a.href = url; a.download = s.last_filename; a.click();
@@ -480,14 +515,16 @@ async function checkAndReattach() {
     const url = `${API}/image/${status.last_filename}`;
     if (!history.some(h => h.url === url)) {
       const modelShort = (status.last_model ?? '').split('/').pop().replace('.safetensors', '');
+      const wasSd = (status.last_seed ?? -1) >= 0;
       placeholder.classList.add('hidden');
       outputImg.src = url;
       outputImg.classList.remove('hidden');
       outputMeta.classList.remove('hidden');
-      metaSeed.textContent  = `Seed: ${status.last_seed}`;
+      metaSeed.textContent  = wasSd ? `Seed: ${status.last_seed}` : 'Gemini';
       metaModel.textContent = `Model: ${modelShort}`;
-      metaSize.textContent  = `${canvasW}×${canvasH}`;
-      reuseBtn.onclick = () => { seedEl.value = status.last_seed; };
+      metaSize.textContent  = wasSd ? `${canvasW}×${canvasH}` : '—';
+      reuseBtn.disabled = !wasSd;
+      reuseBtn.onclick  = wasSd ? () => { seedEl.value = status.last_seed; } : null;
       downloadBtn.onclick = () => {
         const a = document.createElement('a');
         a.href = url; a.download = status.last_filename; a.click();

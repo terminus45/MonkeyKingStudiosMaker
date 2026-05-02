@@ -27,6 +27,7 @@ from config import (
     MODEL_ID,
 )
 from generator import generator, discover_models, discover_loras
+import gemini_generator
 
 
 @asynccontextmanager
@@ -51,7 +52,11 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     prompt: str
+    style_prompt: str = ""
     negative_prompt: Optional[str] = ""
+    provider: str = "sd"          # "sd" | "gemini"
+    gemini_model: str = "imagen-3.0-generate-002"
+    gemini_aspect_ratio: Optional[str] = None
     model_id: Optional[str] = None
     model_num: Optional[int] = None
     lora_num: Optional[int] = None
@@ -175,16 +180,41 @@ def _resolve_loras(req: GenerateRequest) -> list[dict]:
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
     try:
-        # Hot-swap model if requested
+        if req.provider == "gemini":
+            image = gemini_generator.generate(
+                content_prompt=req.prompt,
+                style_prompt=req.style_prompt,
+                negative_prompt=req.negative_prompt or "",
+                model_id=req.gemini_model,
+                aspect_ratio=req.gemini_aspect_ratio,
+                width=req.width,
+                height=req.height,
+            )
+            filename = f"{uuid.uuid4().hex}.png"
+            generator.save(image, filename)
+            b64 = None
+            if req.return_base64:
+                buf = io.BytesIO()
+                image.save(buf, format="PNG")
+                b64 = base64.b64encode(buf.getvalue()).decode()
+            return GenerateResponse(
+                filename=filename,
+                seed=-1,
+                loaded_model=req.gemini_model,
+                image_base64=b64,
+            )
+
+        # SD path
         if req.model_num is not None:
             generator.load_by_number(req.model_num)
         elif req.model_id and req.model_id != generator.loaded_model_id:
             generator.load(req.model_id)
 
         loras = _resolve_loras(req)
+        full_prompt = f"{req.prompt}, {req.style_prompt}" if req.style_prompt else req.prompt
 
         image, used_seed = generator.generate(
-            prompt=req.prompt,
+            prompt=full_prompt,
             negative_prompt=req.negative_prompt,
             steps=req.steps,
             guidance_scale=req.guidance_scale,
@@ -223,56 +253,85 @@ async def generate_stream(req: GenerateRequest):
     queue: asyncio.Queue = asyncio.Queue()
 
     def run():
-        _status_update({"generating": True, "step": 0, "total": req.steps,
+        total_steps = 1 if req.provider == "gemini" else req.steps
+        _status_update({"generating": True, "step": 0, "total": total_steps,
                         "last_filename": None, "last_seed": None, "last_model": None})
         try:
-            if req.model_num is not None:
-                generator.load_by_number(req.model_num)
-            elif req.model_id and req.model_id != generator.loaded_model_id:
-                generator.load(req.model_id)
+            if req.provider == "gemini":
+                loop.call_soon_threadsafe(queue.put_nowait, {"step": 0, "total": 1})
+                image = gemini_generator.generate(
+                    content_prompt=req.prompt,
+                    style_prompt=req.style_prompt,
+                    negative_prompt=req.negative_prompt or "",
+                    model_id=req.gemini_model,
+                    aspect_ratio=req.gemini_aspect_ratio,
+                    width=req.width,
+                    height=req.height,
+                )
+                filename = f"{uuid.uuid4().hex}.png"
+                generator.save(image, filename)
+                _status_update({
+                    "generating": False,
+                    "last_filename": filename,
+                    "last_seed": -1,
+                    "last_model": req.gemini_model,
+                })
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "done": True,
+                    "filename": filename,
+                    "seed": -1,
+                    "loaded_model": req.gemini_model,
+                })
+            else:
+                if req.model_num is not None:
+                    generator.load_by_number(req.model_num)
+                elif req.model_id and req.model_id != generator.loaded_model_id:
+                    generator.load(req.model_id)
 
-            try:
-                loras = _resolve_loras(req)
-            except HTTPException as e:
-                loop.call_soon_threadsafe(queue.put_nowait, {"error": e.detail})
-                _status_update({"generating": False})
-                return
-
-            def on_step(step: int, total: int):
                 try:
-                    _status_update({"step": step, "total": total})
-                    loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
-                except Exception:
-                    pass
+                    loras = _resolve_loras(req)
+                except HTTPException as e:
+                    loop.call_soon_threadsafe(queue.put_nowait, {"error": e.detail})
+                    _status_update({"generating": False})
+                    return
 
-            image, used_seed = generator.generate(
-                prompt=req.prompt,
-                negative_prompt=req.negative_prompt,
-                steps=req.steps,
-                guidance_scale=req.guidance_scale,
-                width=req.width,
-                height=req.height,
-                seed=req.seed,
-                loras=loras,
-                step_callback=on_step,
-                sampler=req.sampler,
-                clip_skip=req.clip_skip,
-            )
+                full_prompt = f"{req.prompt}, {req.style_prompt}" if req.style_prompt else req.prompt
 
-            filename = f"{uuid.uuid4().hex}.png"
-            generator.save(image, filename)
-            _status_update({
-                "generating": False,
-                "last_filename": filename,
-                "last_seed": used_seed,
-                "last_model": generator.loaded_model_id,
-            })
-            loop.call_soon_threadsafe(queue.put_nowait, {
-                "done": True,
-                "filename": filename,
-                "seed": used_seed,
-                "loaded_model": generator.loaded_model_id,
-            })
+                def on_step(step: int, total: int):
+                    try:
+                        _status_update({"step": step, "total": total})
+                        loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
+                    except Exception:
+                        pass
+
+                image, used_seed = generator.generate(
+                    prompt=full_prompt,
+                    negative_prompt=req.negative_prompt,
+                    steps=req.steps,
+                    guidance_scale=req.guidance_scale,
+                    width=req.width,
+                    height=req.height,
+                    seed=req.seed,
+                    loras=loras,
+                    step_callback=on_step,
+                    sampler=req.sampler,
+                    clip_skip=req.clip_skip,
+                )
+
+                filename = f"{uuid.uuid4().hex}.png"
+                generator.save(image, filename)
+                _status_update({
+                    "generating": False,
+                    "last_filename": filename,
+                    "last_seed": used_seed,
+                    "last_model": generator.loaded_model_id,
+                })
+                loop.call_soon_threadsafe(queue.put_nowait, {
+                    "done": True,
+                    "filename": filename,
+                    "seed": used_seed,
+                    "loaded_model": generator.loaded_model_id,
+                })
         except Exception as e:
             _status_update({"generating": False})
             loop.call_soon_threadsafe(queue.put_nowait, {"error": str(e)})
@@ -291,6 +350,11 @@ async def generate_stream(req: GenerateRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/gemini/models")
+def list_gemini_models():
+    return {"models": gemini_generator.GEMINI_MODELS}
 
 
 _DECOMPOSE_SYSTEM = """\

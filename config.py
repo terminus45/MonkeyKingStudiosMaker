@@ -15,6 +15,9 @@ PORT = int(os.getenv("PORT", "8000"))
 # Output
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
 
+# API keys
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
 # Generation defaults
 DEFAULT_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5

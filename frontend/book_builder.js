@@ -3,6 +3,8 @@ const API = window.location.origin;
 // ── State ──────────────────────────────────────────────────────────────────
 let storyData = null;   // DecomposeResponse from server
 let canvasW = 512, canvasH = 512;
+let provider = 'sd';
+let geminiAR = '1:1';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const conceptInput      = document.getElementById('conceptInput');
@@ -37,6 +39,7 @@ const cfgEl           = document.getElementById('cfg');
 const cfgVal          = document.getElementById('cfgVal');
 const samplerSel      = document.getElementById('samplerSelect');
 const clipSkipSel     = document.getElementById('clipSkipSelect');
+const geminiModelSel  = document.getElementById('geminiModelSelect');
 const loraSelect      = document.getElementById('loraSelect');
 const loraScaleRow    = document.getElementById('loraScaleRow');
 const loraScaleEl     = document.getElementById('loraScale');
@@ -173,6 +176,26 @@ function onDimInput() {
 widthInput.addEventListener('change',  onDimInput);
 heightInput.addEventListener('change', onDimInput);
 
+// ── Provider toggle ────────────────────────────────────────────────────────
+function setProvider(p, save = true) {
+  provider = p;
+  document.querySelectorAll('.provider-btn').forEach(b => b.classList.toggle('active', b.dataset.provider === p));
+  document.querySelectorAll('.sd-only').forEach(el => el.classList.toggle('hidden', p === 'gemini'));
+  document.querySelectorAll('.gemini-only').forEach(el => el.classList.toggle('hidden', p === 'sd'));
+  if (save) saveGenSettings();
+}
+document.querySelectorAll('.provider-btn').forEach(b => b.addEventListener('click', () => setProvider(b.dataset.provider)));
+
+// ── Gemini aspect ratio ────────────────────────────────────────────────────
+document.getElementById('geminiAspectPresets').addEventListener('click', e => {
+  const btn = e.target.closest('.ar-btn');
+  if (!btn) return;
+  document.querySelectorAll('.ar-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  geminiAR = btn.dataset.ar;
+  saveGenSettings();
+});
+
 // ── Sliders ────────────────────────────────────────────────────────────────
 stepsEl.addEventListener('input',  () => { stepsVal.textContent = stepsEl.value; });
 stepsEl.addEventListener('change', () => { saveGenSettings(); });
@@ -196,6 +219,9 @@ function saveGenSettings() {
     loraScale2:  loraScaleEl2.value,
     sampler:     samplerSel.value,
     clipSkip:    clipSkipSel.value,
+    provider,
+    geminiModel: geminiModelSel.value,
+    geminiAR,
   };
   localStorage.setItem(GEN_KEY, JSON.stringify(settings));
 }
@@ -224,10 +250,16 @@ function restoreGenSettings() {
   }
   if (s.sampler)  samplerSel.value  = s.sampler;
   if (s.clipSkip) clipSkipSel.value = s.clipSkip;
+  if (s.geminiModel) geminiModelSel.value = s.geminiModel;
+  if (s.geminiAR) {
+    geminiAR = s.geminiAR;
+    document.querySelectorAll('.ar-btn').forEach(b => b.classList.toggle('active', b.dataset.ar === s.geminiAR));
+  }
+  if (s.provider) setProvider(s.provider, false);
 }
 
 // Save on control changes
-[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel].forEach(el =>
+[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel, geminiModelSel].forEach(el =>
   el.addEventListener('change', saveGenSettings));
 [widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
 [genStylePrompt, genNegPrompt].forEach(el => el.addEventListener('input', saveGenSettings));
