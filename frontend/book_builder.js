@@ -326,6 +326,7 @@ decomposeBtn.addEventListener('click', async () => {
       throw new Error(err.detail ?? res.statusText);
     }
     storyData = await res.json();
+    Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
     decomposeHint.textContent = '';
     renderPages(storyData);
     step2.classList.remove('hidden');
@@ -376,6 +377,7 @@ function buildCard(pg) {
         <span class="card-progress-label" id="card-progress-label-${pg.page}">0 / 0</span>
       </div>
       <div class="thumb-upload-overlay" id="upload-overlay-${pg.page}">
+        <button class="thumb-regen-btn" data-page="${pg.page}" title="Regenerate this page">↺</button>
         <label class="thumb-upload-btn" title="Upload image for this page">
           ↑ Upload
           <input type="file" accept="image/*" style="display:none" data-page="${pg.page}">
@@ -405,6 +407,7 @@ function buildCard(pg) {
         <textarea rows="4" data-field="image_prompt">${escHtml(pg.image_prompt)}</textarea>
       </div>
     </div>
+    <div class="card-error hidden" id="card-error-${pg.page}"></div>
   `;
   return card;
 }
@@ -435,6 +438,91 @@ pageGrid.addEventListener('change', e => {
   uploadImageFile(parseInt(input.dataset.page), input.files[0]);
   input.value = '';   // reset so same file can be re-selected
 });
+
+// ── Single-page regeneration ───────────────────────────────────────────────
+const _regenActive = new Set();
+
+pageGrid.addEventListener('click', e => {
+  const btn = e.target.closest('.thumb-regen-btn');
+  if (!btn) return;
+  if (queueBtn.disabled) return; // block while full queue is running
+  const pageNum = parseInt(btn.dataset.page);
+  if (_regenActive.has(pageNum)) return;
+  generateSinglePage(pageNum);
+});
+
+async function generateSinglePage(pageNum) {
+  if (_regenActive.has(pageNum)) return;
+  _regenActive.add(pageNum);
+
+  const current = readCard(pageNum);
+  showThumbSpinner(pageNum);
+  showCardProgress(pageNum, 0, provider === 'sd' ? parseInt(stepsEl.value) : 1);
+
+  const genBody = {
+    prompt:       current.image_prompt,
+    style_prompt: genStylePrompt.value.trim(),
+    provider,
+    width:        canvasW,
+    height:       canvasH,
+  };
+  if (provider === 'sd') {
+    genBody.negative_prompt = genNegPrompt.value.trim();
+    genBody.model_num       = parseInt(modelSel.value) || undefined;
+    genBody.steps           = parseInt(stepsEl.value);
+    genBody.guidance_scale  = parseFloat(cfgEl.value);
+    genBody.seed            = -1;
+    genBody.sampler         = samplerSel.value;
+    genBody.clip_skip       = parseInt(clipSkipSel.value);
+    if (loraSelect.value)  { genBody.lora_num   = parseInt(loraSelect.value);  genBody.lora_scale   = parseFloat(loraScaleEl.value); }
+    if (loraSelect2.value) { genBody.lora_num_2 = parseInt(loraSelect2.value); genBody.lora_scale_2 = parseFloat(loraScaleEl2.value); }
+  } else {
+    genBody.gemini_model        = geminiModelSel.value;
+    genBody.gemini_aspect_ratio = geminiAR;
+  }
+
+  try {
+    const res = await fetch(`${API}/generate/stream`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(genBody),
+    });
+    if (!res.ok) throw new Error(await parseErrorBody(res));
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   buf     = '';
+    let   result  = null;
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+        if (evt.error) throw new Error(evt.error);
+        if (evt.done) { result = evt; break outer; }
+        showCardProgress(pageNum, evt.step, evt.total);
+      }
+    }
+
+    if (!result) throw new Error('Stream ended without result.');
+    const url = `${API}/image/${result.filename}`;
+    generatedImages[pageNum] = { filename: result.filename, url };
+    hideCardProgress(pageNum);
+    showThumbImage(pageNum, url);
+    saveState();
+  } catch (err) {
+    hideCardProgress(pageNum);
+    showThumbError(pageNum, err.message);
+  } finally {
+    _regenActive.delete(pageNum);
+  }
+}
 
 pageGrid.addEventListener('dragover', e => {
   const wrap = e.target.closest('.card-thumb-wrap');
@@ -533,7 +621,7 @@ queueBtn.addEventListener('click', async () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(genBody),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await parseErrorBody(res));
 
       // Read SSE stream
       const reader  = res.body.getReader();
@@ -618,22 +706,43 @@ function hideCardProgress(pageNum) {
 }
 
 // ── Thumb helpers ──────────────────────────────────────────────────────────
+async function parseErrorBody(res) {
+  const text = await res.text();
+  try {
+    const j = JSON.parse(text);
+    return j.detail ?? j.message ?? text;
+  } catch { return text; }
+}
+
+function clearCardError(pageNum) {
+  const el = document.getElementById(`card-error-${pageNum}`);
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+
 function showThumbSpinner(pageNum) {
+  clearCardError(pageNum);
   const el = document.getElementById(`thumb-${pageNum}`);
   if (!el) return;
   el.innerHTML = `<div class="thumb-spinner"><div class="spinner"></div></div>`;
 }
 
 function showThumbImage(pageNum, url) {
+  clearCardError(pageNum);
   const el = document.getElementById(`thumb-${pageNum}`);
   if (!el) return;
   el.innerHTML = `<img src="${url}" alt="Page ${pageNum}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
 }
 
 function showThumbError(pageNum, msg) {
-  const el = document.getElementById(`thumb-${pageNum}`);
-  if (!el) return;
-  el.innerHTML = `<div class="thumb-placeholder" title="${escHtml(msg)}">⚠ Page ${pageNum} failed</div>`;
+  const thumb = document.getElementById(`thumb-${pageNum}`);
+  if (thumb) thumb.innerHTML = `<div class="thumb-placeholder">⚠ Page ${pageNum} failed</div>`;
+  const errEl = document.getElementById(`card-error-${pageNum}`);
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.classList.remove('hidden');
+  }
 }
 
 // ── Export storybook HTML ──────────────────────────────────────────────────

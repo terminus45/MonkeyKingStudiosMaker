@@ -147,7 +147,7 @@
   inset: 0;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: .4rem;
   opacity: 0;
   transition: opacity .15s;
@@ -169,6 +169,21 @@
   white-space: nowrap;
 }
 .thumb-upload-btn:hover { background: rgba(0,0,0,.85); }
+.thumb-regen-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(180,130,0,.75);
+  color: #fff;
+  font-size: .82rem;
+  line-height: 1;
+  padding: .25rem .45rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.thumb-regen-btn:hover { background: rgba(180,130,0,.95); }
 
 /* Drag-over highlight */
 .card-thumb-wrap.drag-over {
@@ -254,6 +269,21 @@
   font-size: .75rem;
   color: var(--ink-soft);
 }
+
+/* Per-card error message */
+.card-error {
+  background: rgba(180,40,40,.08);
+  border: 1px solid rgba(180,40,40,.35);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: .45rem .65rem;
+  font-size: .75rem;
+  color: #c0392b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+.card-error.hidden { display: none; }
 
 /* Generation controls */
 .gen-controls {
