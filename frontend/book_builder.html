@@ -122,9 +122,11 @@
       </div>
 
       <div class="gen-controls">
-        <div class="control-group sd-only">
-          <label>Model</label>
-          <select id="modelSelect"><option value="">Loading…</option></select>
+        <div class="control-group">
+          <div class="provider-toggle">
+            <button class="provider-btn active" data-provider="sd">🖥 Local SD</button>
+            <button class="provider-btn" data-provider="gemini">✦ Gemini</button>
+          </div>
         </div>
 
         <div class="control-group">
@@ -139,38 +141,39 @@
           </div>
         </div>
 
-        <div class="control-group">
+        <div class="control-group gemini-only hidden">
+          <div class="gemini-options-row">
+            <div class="gemini-opt">
+              <label>Model</label>
+              <select id="geminiModelSelect">
+                <option value="imagen-4.0-generate-001">Imagen 4</option>
+                <option value="imagen-4.0-fast-generate-001">Imagen 4 Fast</option>
+                <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra</option>
+                <option value="gemini-2.5-flash-image">Gemini 2.5 Flash</option>
+              </select>
+            </div>
+            <div class="gemini-opt">
+              <label>Aspect Ratio</label>
+              <div class="presets" id="geminiAspectPresets">
+                <button class="preset ar-btn active" data-ar="1:1">1:1</button>
+                <button class="preset ar-btn" data-ar="16:9">16:9</button>
+                <button class="preset ar-btn" data-ar="9:16">9:16</button>
+                <button class="preset ar-btn" data-ar="4:3">4:3</button>
+                <button class="preset ar-btn" data-ar="3:4">3:4</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-group sd-only">
           <label class="toggle-label" id="negToggle">Negative Prompt <span class="toggle-arrow">▸</span></label>
           <textarea id="genNegPrompt" rows="2" class="collapsed"
             placeholder="blurry, low quality…">blurry, low quality, watermark, text, deformed, ugly, bad anatomy</textarea>
         </div>
 
-        <div class="control-group">
-          <label>Provider</label>
-          <div class="presets">
-            <button class="preset provider-btn active" data-provider="sd">Local SD</button>
-            <button class="preset provider-btn" data-provider="gemini">Gemini</button>
-          </div>
-        </div>
-
-        <div class="control-group gemini-only hidden">
-          <label>Gemini Model</label>
-          <select id="geminiModelSelect">
-            <option value="imagen-3.0-generate-002">Imagen 3</option>
-            <option value="imagen-3.0-fast-generate-001">Imagen 3 Fast</option>
-            <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
-          </select>
-        </div>
-
-        <div class="control-group gemini-only hidden">
-          <label>Aspect Ratio</label>
-          <div class="presets" id="geminiAspectPresets">
-            <button class="preset ar-btn active" data-ar="1:1">1:1</button>
-            <button class="preset ar-btn" data-ar="16:9">16:9</button>
-            <button class="preset ar-btn" data-ar="9:16">9:16</button>
-            <button class="preset ar-btn" data-ar="4:3">4:3</button>
-            <button class="preset ar-btn" data-ar="3:4">3:4</button>
-          </div>
+        <div class="control-group sd-only">
+          <label>Model</label>
+          <select id="modelSelect"><option value="">Loading…</option></select>
         </div>
 
         <div class="control-group sd-only">

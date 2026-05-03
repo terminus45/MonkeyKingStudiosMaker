@@ -173,6 +173,51 @@ textarea.collapsed { display: none; }
 .preset:hover  { border-color: var(--gold); color: var(--gold); }
 .preset.active { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 600; }
 
+/* ── Provider toggle ── */
+.provider-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  width: fit-content;
+}
+.provider-toggle .provider-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--ctrl-bg);
+  border: none;
+  border-radius: 0;
+  padding: .4rem 1.1rem;
+  font-size: .82rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all .15s;
+  line-height: 1;
+}
+.provider-toggle .provider-btn + .provider-btn {
+  border-left: 1px solid var(--border);
+}
+.provider-toggle .provider-btn:hover  { color: var(--gold); background: var(--paper-dark); }
+.provider-toggle .provider-btn.active { background: var(--gold); color: #fff; font-weight: 600; }
+
+/* ── Gemini compact options row ── */
+.gemini-options-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.gemini-opt {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+.gemini-opt label {
+  font-size: .75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
 /* ── Dimension inputs ── */
 .size-dims-row {
   display: flex;

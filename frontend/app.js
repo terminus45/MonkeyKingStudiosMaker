@@ -201,14 +201,14 @@ async function generate() {
 
   try {
     const body = {
-      prompt:          basePrompt,
-      style_prompt:    stylePromptEl.value.trim(),
-      negative_prompt: negEl.value.trim(),
+      prompt:       basePrompt,
+      style_prompt: stylePromptEl.value.trim(),
       provider,
-      width:           canvasW,
-      height:          canvasH,
+      width:        canvasW,
+      height:       canvasH,
     };
     if (provider === 'sd') {
+      body.negative_prompt = negEl.value.trim();
       body.model_num      = parseInt(modelSel.value) || undefined;
       body.steps          = parseInt(stepsEl.value);
       body.guidance_scale = parseFloat(cfgEl.value);
@@ -380,7 +380,10 @@ function restoreGenSettings() {
   }
   if (g.sampler)  samplerSel.value  = g.sampler;
   if (g.clipSkip) clipSkipSel.value = g.clipSkip;
-  if (g.geminiModel) geminiModelSel.value = g.geminiModel;
+  if (g.geminiModel) {
+    geminiModelSel.value = g.geminiModel;
+    if (!geminiModelSel.value) geminiModelSel.selectedIndex = 0;
+  }
   if (g.geminiAR) {
     geminiAR = g.geminiAR;
     document.querySelectorAll('.ar-btn').forEach(b => b.classList.toggle('active', b.dataset.ar === g.geminiAR));

@@ -7,9 +7,10 @@ from typing import Optional
 from PIL import Image
 
 GEMINI_MODELS = [
-    {"id": "imagen-3.0-generate-002",      "name": "Imagen 3",         "type": "imagen"},
-    {"id": "imagen-3.0-fast-generate-001", "name": "Imagen 3 Fast",    "type": "imagen"},
-    {"id": "gemini-2.0-flash-exp",         "name": "Gemini 2.0 Flash", "type": "gemini"},
+    {"id": "imagen-4.0-generate-001",      "name": "Imagen 4",            "type": "imagen"},
+    {"id": "imagen-4.0-fast-generate-001", "name": "Imagen 4 Fast",       "type": "imagen"},
+    {"id": "imagen-4.0-ultra-generate-001","name": "Imagen 4 Ultra",      "type": "imagen"},
+    {"id": "gemini-2.5-flash-image",       "name": "Gemini 2.5 Flash",    "type": "gemini"},
 ]
 
 ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"]
@@ -40,39 +41,54 @@ def generate(
     content_prompt: str,
     style_prompt: str = "",
     negative_prompt: str = "",
-    model_id: str = "imagen-3.0-generate-002",
+    model_id: str = "imagen-4.0-generate-001",
     aspect_ratio: Optional[str] = None,
     width: int = 512,
     height: int = 512,
 ) -> Image.Image:
     from google.genai import types as gt
+    from google.genai.errors import ClientError
 
     client = _client()
     full_prompt = f"{content_prompt}, {style_prompt}" if style_prompt else content_prompt
     ar = aspect_ratio if aspect_ratio in ASPECT_RATIOS else _fit_aspect_ratio(width, height)
     model_type = next((m["type"] for m in GEMINI_MODELS if m["id"] == model_id), "imagen")
 
-    if model_type == "imagen":
-        result = client.models.generate_images(
-            model=model_id,
-            prompt=full_prompt,
-            config=gt.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=ar,
-                negative_prompt=negative_prompt or None,
-            ),
-        )
-        if not result.generated_images:
-            raise RuntimeError("Imagen returned no images — content may have been blocked.")
-        return Image.open(io.BytesIO(result.generated_images[0].image.image_bytes))
+    try:
+        if model_type == "imagen":
+            result = client.models.generate_images(
+                model=model_id,
+                prompt=full_prompt,
+                config=gt.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio=ar,
+                ),
+            )
+            if not result.generated_images:
+                raise RuntimeError("Imagen returned no images — content may have been blocked.")
+            return Image.open(io.BytesIO(result.generated_images[0].image.image_bytes))
 
-    # Gemini multimodal generation (e.g. gemini-2.0-flash-exp)
-    response = client.models.generate_content(
-        model=model_id,
-        contents=full_prompt,
-        config=gt.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
-    )
-    for part in response.candidates[0].content.parts:
-        if part.inline_data is not None:
-            return Image.open(io.BytesIO(part.inline_data.data))
-    raise RuntimeError("Gemini returned no image — try a different prompt.")
+        # Gemini multimodal generation
+        response = client.models.generate_content(
+            model=model_id,
+            contents=full_prompt,
+            config=gt.GenerateContentConfig(response_modalities=["IMAGE"]),
+        )
+        for part in response.candidates[0].content.parts:
+            if part.inline_data is not None:
+                return Image.open(io.BytesIO(part.inline_data.data))
+        raise RuntimeError("Gemini returned no image — try a different prompt.")
+
+    except ClientError as e:
+        if e.code == 404:
+            raise RuntimeError(
+                f"Model '{model_id}' not found (404). "
+                "Check that your API key has access to this model. "
+                "Try switching to Gemini 2.5 Flash if Imagen is unavailable."
+            ) from e
+        if e.code in (401, 403):
+            raise RuntimeError(
+                f"Permission denied ({e.code}). Check your GEMINI_API_KEY is valid "
+                "and has access to the selected model."
+            ) from e
+        raise RuntimeError(f"Gemini API error {e.code}: {e.message}") from e

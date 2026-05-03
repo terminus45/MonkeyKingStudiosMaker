@@ -55,7 +55,7 @@ class GenerateRequest(BaseModel):
     style_prompt: str = ""
     negative_prompt: Optional[str] = ""
     provider: str = "sd"          # "sd" | "gemini"
-    gemini_model: str = "imagen-3.0-generate-002"
+    gemini_model: str = "imagen-4.0-generate-001"
     gemini_aspect_ratio: Optional[str] = None
     model_id: Optional[str] = None
     model_num: Optional[int] = None
@@ -258,6 +258,8 @@ async def generate_stream(req: GenerateRequest):
                         "last_filename": None, "last_seed": None, "last_model": None})
         try:
             if req.provider == "gemini":
+                if not req.gemini_model:
+                    raise ValueError("No Gemini model selected.")
                 loop.call_soon_threadsafe(queue.put_nowait, {"step": 0, "total": 1})
                 image = gemini_generator.generate(
                     content_prompt=req.prompt,
@@ -333,6 +335,7 @@ async def generate_stream(req: GenerateRequest):
                     "loaded_model": generator.loaded_model_id,
                 })
         except Exception as e:
+            import traceback; traceback.print_exc()
             _status_update({"generating": False})
             loop.call_soon_threadsafe(queue.put_nowait, {"error": str(e)})
 

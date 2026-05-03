@@ -250,7 +250,10 @@ function restoreGenSettings() {
   }
   if (s.sampler)  samplerSel.value  = s.sampler;
   if (s.clipSkip) clipSkipSel.value = s.clipSkip;
-  if (s.geminiModel) geminiModelSel.value = s.geminiModel;
+  if (s.geminiModel) {
+    geminiModelSel.value = s.geminiModel;
+    if (!geminiModelSel.value) geminiModelSel.selectedIndex = 0;
+  }
   if (s.geminiAR) {
     geminiAR = s.geminiAR;
     document.querySelectorAll('.ar-btn').forEach(b => b.classList.toggle('active', b.dataset.ar === s.geminiAR));
@@ -497,35 +500,32 @@ queueBtn.addEventListener('click', async () => {
       break;
     }
 
-    const current    = readCard(pg.page);
-    const stylePart  = genStylePrompt.value.trim();
-    const prompt     = stylePart
-      ? `${current.image_prompt}, ${stylePart}`
-      : current.image_prompt;
+    const current = readCard(pg.page);
 
     showThumbSpinner(pg.page);
-    showCardProgress(pg.page, 0, parseInt(stepsEl.value));
+    showCardProgress(pg.page, 0, provider === 'sd' ? parseInt(stepsEl.value) : 1);
 
     try {
       const genBody = {
-        prompt,
-        negative_prompt: genNegPrompt.value.trim(),
-        model_num: parseInt(modelSel.value) || undefined,
-        steps: parseInt(stepsEl.value),
-        guidance_scale: parseFloat(cfgEl.value),
-        width: canvasW,
-        height: canvasH,
-        seed: -1,
-        sampler: samplerSel.value,
-        clip_skip: parseInt(clipSkipSel.value),
+        prompt:       current.image_prompt,
+        style_prompt: genStylePrompt.value.trim(),
+        provider,
+        width:        canvasW,
+        height:       canvasH,
       };
-      if (loraSelect.value) {
-        genBody.lora_num   = parseInt(loraSelect.value);
-        genBody.lora_scale = parseFloat(loraScaleEl.value);
-      }
-      if (loraSelect2.value) {
-        genBody.lora_num_2   = parseInt(loraSelect2.value);
-        genBody.lora_scale_2 = parseFloat(loraScaleEl2.value);
+      if (provider === 'sd') {
+        genBody.negative_prompt = genNegPrompt.value.trim();
+        genBody.model_num       = parseInt(modelSel.value) || undefined;
+        genBody.steps           = parseInt(stepsEl.value);
+        genBody.guidance_scale  = parseFloat(cfgEl.value);
+        genBody.seed            = -1;
+        genBody.sampler         = samplerSel.value;
+        genBody.clip_skip       = parseInt(clipSkipSel.value);
+        if (loraSelect.value)  { genBody.lora_num   = parseInt(loraSelect.value);  genBody.lora_scale   = parseFloat(loraScaleEl.value); }
+        if (loraSelect2.value) { genBody.lora_num_2 = parseInt(loraSelect2.value); genBody.lora_scale_2 = parseFloat(loraScaleEl2.value); }
+      } else {
+        genBody.gemini_model        = geminiModelSel.value;
+        genBody.gemini_aspect_ratio = geminiAR;
       }
 
       const res = await fetch(`${API}/generate/stream`, {
