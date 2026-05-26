@@ -1,10 +1,50 @@
 const API = window.location.origin;
 
+// ── Language registry (mirrors languages.py, minus prompts) ────────────────
+const LANG_META = {
+  zh: {
+    code: 'zh', display_name: '中文', english_name: 'Chinese',
+    native_field: 'zh', reading_field: 'pinyin', reading_label: 'Pinyin',
+    title_native_field: 'book_title_zh', title_reading_field: 'book_title_pinyin',
+    font_class: 'lang-zh',
+    native_placeholder: '故事书', reading_placeholder: 'Gùshì shū',
+    table_native_aliases: ['汉字', '中文', 'chinese', 'zh', 'hanzi'],
+    table_reading_aliases: ['pinyin'],
+    table_headers_hint: '(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)',
+  },
+  ja: {
+    code: 'ja', display_name: '日本語', english_name: 'Japanese',
+    native_field: 'ja', reading_field: 'romaji', reading_label: 'Romaji',
+    title_native_field: 'book_title_ja', title_reading_field: 'book_title_romaji',
+    font_class: 'lang-ja',
+    native_placeholder: '物語', reading_placeholder: 'monogatari',
+    table_native_aliases: ['日本語', 'japanese', 'ja', 'kanji'],
+    table_reading_aliases: ['romaji', 'romaji reading', 'hepburn', 'reading'],
+    table_headers_hint: '(CSV or tab-separated · headers: Page, Romaji, 日本語, English, Illustration Prompt)',
+  },
+  ko: {
+    code: 'ko', display_name: '한국어', english_name: 'Korean',
+    native_field: 'ko', reading_field: 'romanization', reading_label: 'Romanization',
+    title_native_field: 'book_title_ko', title_reading_field: 'book_title_romanization',
+    font_class: 'lang-ko',
+    native_placeholder: '이야기책', reading_placeholder: 'iyagichaek',
+    table_native_aliases: ['한국어', 'korean', 'ko', 'hangul'],
+    table_reading_aliases: ['romanization', 'romanisation', 'rr'],
+    table_headers_hint: '(CSV or tab-separated · headers: Page, Romanization, 한국어, English, Illustration Prompt)',
+  },
+};
+const DEFAULT_LANG = 'zh';
+
+function langMeta(code) {
+  return LANG_META[code] || LANG_META[DEFAULT_LANG];
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let storyData = null;   // DecomposeResponse from server
 let canvasW = 512, canvasH = 512;
 let provider = 'sd';
 let geminiAR = '1:1';
+let currentLang = DEFAULT_LANG;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const conceptInput      = document.getElementById('conceptInput');
@@ -13,15 +53,22 @@ const saveProjectBtn    = document.getElementById('saveProjectBtn');
 const clearProjectBtn   = document.getElementById('clearProjectBtn');
 const loadProjectFile   = document.getElementById('loadProjectFile');
 const decomposeBtn      = document.getElementById('decomposeBtn');
-const importTitleEn     = document.getElementById('importTitleEn');
-const importTitleZh     = document.getElementById('importTitleZh');
-const importTitlePinyin = document.getElementById('importTitlePinyin');
+const importTitleEn          = document.getElementById('importTitleEn');
+const importTitleNative      = document.getElementById('importTitleNative');
+const importTitleReading     = document.getElementById('importTitleReading');
+const importTitleNativeLabel = document.getElementById('importTitleNativeLabel');
+const importTitleReadingLabel= document.getElementById('importTitleReadingLabel');
+const tableHeadersHint  = document.getElementById('tableHeadersHint');
 const tableInput        = document.getElementById('tableInput');
 const parseTableBtn     = document.getElementById('parseTableBtn');
 const parseHint         = document.getElementById('parseHint');
+const langToggle        = document.getElementById('langToggle');
 const decomposeLabel  = document.getElementById('decomposeLabel');
 const decomposeSpinner= document.getElementById('decomposeSpinner');
 const decomposeHint   = document.getElementById('decomposeHint');
+const autoGenBtn      = document.getElementById('autoGenBtn');
+const autoGenLabel    = document.getElementById('autoGenLabel');
+const autoGenSpinner  = document.getElementById('autoGenSpinner');
 
 const step2           = document.getElementById('step2');
 const bookTitleDisplay= document.getElementById('bookTitleDisplay');
@@ -67,6 +114,41 @@ const gallerySpinner  = document.getElementById('gallerySpinner');
 
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
+
+// ── Language selector ──────────────────────────────────────────────────────
+function applyLanguageToUI(code) {
+  const meta = langMeta(code);
+  // Toggle button highlight
+  langToggle.querySelectorAll('.lang-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.lang === code));
+
+  // Import-section labels and placeholders
+  importTitleNativeLabel.textContent  = `Book Title (${meta.english_name})`;
+  importTitleReadingLabel.textContent = `Title ${meta.reading_label}`;
+  importTitleNative.placeholder  = meta.native_placeholder;
+  importTitleReading.placeholder = meta.reading_placeholder;
+  if (tableHeadersHint) tableHeadersHint.textContent = meta.table_headers_hint;
+}
+
+function setLanguage(code, { rerender = true, save = true } = {}) {
+  if (!LANG_META[code]) code = DEFAULT_LANG;
+  currentLang = code;
+  applyLanguageToUI(code);
+  if (rerender && storyData) renderPages(storyData);
+  if (save) saveState();
+}
+
+langToggle.addEventListener('click', e => {
+  const btn = e.target.closest('.lang-btn');
+  if (!btn) return;
+  const code = btn.dataset.lang;
+  if (code === currentLang) return;
+  // Switching language with an existing story would leave card fields empty
+  // (the native/reading field names differ). Confirm before discarding it.
+  if (storyData && !confirm('Switching language will clear the current book. Continue?')) return;
+  if (storyData) clearProject();
+  setLanguage(code);
+});
 
 // ── Server status ──────────────────────────────────────────────────────────
 async function checkHealth() {
@@ -309,8 +391,21 @@ document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
 
 // ── Decompose ──────────────────────────────────────────────────────────────
 decomposeBtn.addEventListener('click', async () => {
+  if (await runDecompose()) {
+    step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+
+autoGenBtn.addEventListener('click', async () => {
+  if (await runDecompose()) {
+    step3.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    queueBtn.click();
+  }
+});
+
+async function runDecompose() {
   const concept = conceptInput.value.trim();
-  if (!concept) { conceptInput.focus(); return; }
+  if (!concept) { conceptInput.focus(); return false; }
 
   setDecomposeLoading(true);
   decomposeHint.textContent = 'Claude is writing your storybook… this takes ~20 seconds.';
@@ -319,7 +414,11 @@ decomposeBtn.addEventListener('click', async () => {
     const res = await fetch(`${API}/decompose`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ concept, style_suffix: stylePromptInput.value.trim() }),
+      body: JSON.stringify({
+        concept,
+        style_suffix: stylePromptInput.value.trim(),
+        language: currentLang,
+      }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -334,24 +433,31 @@ decomposeBtn.addEventListener('click', async () => {
     queueBtn.disabled = false;
     saveProjectBtn.disabled = false;
     saveState();
-    step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
   } catch (err) {
     decomposeHint.textContent = `Error: ${err.message}`;
+    return false;
   } finally {
     setDecomposeLoading(false);
   }
-});
+}
 
 function setDecomposeLoading(on) {
   decomposeBtn.disabled = on;
+  autoGenBtn.disabled   = on;
   decomposeLabel.textContent = on ? 'Writing…' : '✦ Create Story with Claude';
+  autoGenLabel.textContent   = on ? 'Writing…' : '⚡ Create Story + Generate Images';
   decomposeSpinner.classList.toggle('hidden', !on);
+  autoGenSpinner.classList.toggle('hidden', !on);
 }
 
 // ── Render page cards ──────────────────────────────────────────────────────
 function renderPages(data) {
-  bookTitleDisplay.textContent = `${data.book_title_zh} · ${data.book_title_en}`;
-  bookTitleSub.textContent = data.book_title_pinyin;
+  const meta = langMeta(currentLang);
+  const titleNative  = data[meta.title_native_field]  ?? '';
+  const titleReading = data[meta.title_reading_field] ?? '';
+  bookTitleDisplay.textContent = `${titleNative} · ${data.book_title_en}`;
+  bookTitleSub.textContent = titleReading;
 
   pageGrid.innerHTML = '';
   data.pages.forEach(pg => {
@@ -361,9 +467,13 @@ function renderPages(data) {
 }
 
 function buildCard(pg) {
+  const meta = langMeta(currentLang);
   const card = document.createElement('div');
   card.className = 'page-card';
   card.dataset.page = pg.page;
+
+  const nativeVal  = pg[meta.native_field]  ?? '';
+  const readingVal = pg[meta.reading_field] ?? '';
 
   card.innerHTML = `
     <div class="card-thumb-wrap" id="thumb-wrap-${pg.page}">
@@ -387,14 +497,14 @@ function buildCard(pg) {
     <div class="card-body">
       <div class="card-page-num">Page ${pg.page}</div>
 
-      <div class="card-field zh-field">
-        <label>中文</label>
-        <textarea rows="2" data-field="zh">${escHtml(pg.zh)}</textarea>
+      <div class="card-field native-field ${meta.font_class}">
+        <label>${escHtml(meta.display_name)}</label>
+        <textarea rows="2" data-field="${meta.native_field}">${escHtml(nativeVal)}</textarea>
       </div>
 
       <div class="card-field">
-        <label>Pinyin</label>
-        <textarea rows="2" data-field="pinyin">${escHtml(pg.pinyin)}</textarea>
+        <label>${escHtml(meta.reading_label)}</label>
+        <textarea rows="2" data-field="${meta.reading_field}">${escHtml(readingVal)}</textarea>
       </div>
 
       <div class="card-field">
@@ -550,11 +660,12 @@ pageGrid.addEventListener('drop', e => {
 function readCard(pageNum) {
   const card = pageGrid.querySelector(`[data-page="${pageNum}"]`);
   if (!card) return null;
+  const meta = langMeta(currentLang);
   const get = f => card.querySelector(`[data-field="${f}"]`)?.value ?? '';
   return {
     page: pageNum,
-    zh: get('zh'),
-    pinyin: get('pinyin'),
+    [meta.native_field]:  get(meta.native_field),
+    [meta.reading_field]: get(meta.reading_field),
     en: get('en'),
     image_prompt: get('image_prompt'),
   };
@@ -801,7 +912,7 @@ function currentProject() {
     saved_at:         new Date().toISOString(),
     concept:          conceptInput.value.trim(),
     style_prompt:     stylePromptInput.value.trim(),
-    story:            { ...storyData, pages: editedPages },
+    story:            { ...storyData, language: currentLang, pages: editedPages },
     generated_images: Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
     ),
@@ -817,10 +928,12 @@ parseTableBtn.addEventListener('click', () => {
   const { pages, error } = parseTableCSV(raw);
   if (error) { parseHint.textContent = `Error: ${error}`; return; }
 
+  const meta = langMeta(currentLang);
   storyData = {
-    book_title_en:     importTitleEn.value.trim()     || 'Imported Story',
-    book_title_zh:     importTitleZh.value.trim()     || '',
-    book_title_pinyin: importTitlePinyin.value.trim() || '',
+    language:                       currentLang,
+    book_title_en:                  importTitleEn.value.trim()      || 'Imported Story',
+    [meta.title_native_field]:      importTitleNative.value.trim()  || '',
+    [meta.title_reading_field]:     importTitleReading.value.trim() || '',
     pages,
   };
 
@@ -843,12 +956,13 @@ function parseTableCSV(raw) {
   if (lines.length < 2) return { error: 'Need at least a header row and one data row.' };
 
   const headers = splitRow(lines[0], delim).map(h => h.trim().toLowerCase());
+  const meta = langMeta(currentLang);
 
-  // Map header names to standard fields
+  // Map header names to standard fields (language-aware for native/reading columns)
   const colIndex = {
     page:         findCol(headers, ['page', 'pg', '#']),
-    pinyin:       findCol(headers, ['pinyin']),
-    zh:           findCol(headers, ['汉字', 'chinese', 'zh', 'hanzi', '中文']),
+    reading:      findCol(headers, meta.table_reading_aliases),
+    native:       findCol(headers, meta.table_native_aliases),
     en:           findCol(headers, ['english', 'en', 'translation']),
     image_prompt: findCol(headers, ['illustration prompt', 'illustration', 'image prompt', 'prompt', 'image_prompt']),
   };
@@ -862,11 +976,11 @@ function parseTableCSV(raw) {
     const pageNum = parseInt(cells[colIndex.page]);
     if (isNaN(pageNum)) continue;
     pages.push({
-      page:         pageNum,
-      pinyin:       (cells[colIndex.pinyin]       ?? '').trim(),
-      zh:           (cells[colIndex.zh]           ?? '').trim(),
-      en:           (cells[colIndex.en]           ?? '').trim(),
-      image_prompt: (cells[colIndex.image_prompt] ?? '').trim(),
+      page:                     pageNum,
+      [meta.reading_field]:     (cells[colIndex.reading]      ?? '').trim(),
+      [meta.native_field]:      (cells[colIndex.native]       ?? '').trim(),
+      en:                       (cells[colIndex.en]           ?? '').trim(),
+      image_prompt:             (cells[colIndex.image_prompt] ?? '').trim(),
     });
   }
 
@@ -904,20 +1018,23 @@ function splitRow(line, delim) {
 }
 
 // ── localStorage state persistence ────────────────────────────────────────
-const LS_KEY = 'monkeyking_bb_state';
+const LS_KEY   = 'monkeyking_bb_state';
+const LANG_KEY = 'monkeyking_bb_lang';   // preferred language, survives Clear
 
 function saveState() {
+  // Always persist the chosen language so it survives a reload even before a story exists.
+  try { localStorage.setItem(LANG_KEY, currentLang); } catch { /* quota */ }
   if (!storyData) return;
   const editedPages = storyData.pages.map(pg => readCard(pg.page));
   const state = {
-    version:            1,
-    concept:            conceptInput.value.trim(),
-    style_prompt:       stylePromptInput.value.trim(),
-    import_title_en:    importTitleEn.value.trim(),
-    import_title_zh:    importTitleZh.value.trim(),
-    import_title_pinyin:importTitlePinyin.value.trim(),
-    story:              { ...storyData, pages: editedPages },
-    generated_images:   Object.fromEntries(
+    version:             1,
+    concept:             conceptInput.value.trim(),
+    style_prompt:        stylePromptInput.value.trim(),
+    import_title_en:     importTitleEn.value.trim(),
+    import_title_native: importTitleNative.value.trim(),
+    import_title_reading:importTitleReading.value.trim(),
+    story:               { ...storyData, language: currentLang, pages: editedPages },
+    generated_images:    Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
     ),
   };
@@ -930,26 +1047,26 @@ async function restoreState() {
     if (!raw) return;
     const state = JSON.parse(raw);
     if (!state.story?.pages) return;
-    importTitleEn.value      = state.import_title_en      ?? '';
-    importTitleZh.value      = state.import_title_zh      ?? '';
-    importTitlePinyin.value  = state.import_title_pinyin  ?? '';
+    importTitleEn.value      = state.import_title_en       ?? '';
+    // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
+    importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
+    importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
     await restoreProject(state);
   } catch { /* corrupted */ }
 }
 
-clearProjectBtn.addEventListener('click', () => {
-  if (!confirm('Clear the current project? This cannot be undone.')) return;
+function clearProject() {
   localStorage.removeItem(LS_KEY);
 
   storyData = null;
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
-  conceptInput.value      = '';
-  stylePromptInput.value  = '';
-  importTitleEn.value     = '';
-  importTitleZh.value     = '';
-  importTitlePinyin.value = '';
-  tableInput.value        = '';
+  conceptInput.value       = '';
+  stylePromptInput.value   = '';
+  importTitleEn.value      = '';
+  importTitleNative.value  = '';
+  importTitleReading.value = '';
+  tableInput.value         = '';
 
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
@@ -958,6 +1075,11 @@ clearProjectBtn.addEventListener('click', () => {
   saveProjectBtn.disabled = true;
   decomposeHint.textContent = '';
   parseHint.textContent     = '';
+}
+
+clearProjectBtn.addEventListener('click', () => {
+  if (!confirm('Clear the current project? This cannot be undone.')) return;
+  clearProject();
 });
 
 // ── Save / Load project ────────────────────────────────────────────────────
@@ -974,7 +1096,7 @@ function saveProject() {
     saved_at: new Date().toISOString(),
     concept: conceptInput.value.trim(),
     style_prompt: stylePromptInput.value.trim(),
-    story: { ...storyData, pages: editedPages },
+    story: { ...storyData, language: currentLang, pages: editedPages },
     generated_images: Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
     ),
@@ -1013,6 +1135,11 @@ loadProjectFile.addEventListener('change', async e => {
   await Promise.all([loadModels(), loadLoras()]);
   restoreGenSettings();
 
+  // Apply remembered language before restoring state (restoreProject will override
+  // if the loaded project specifies its own language).
+  const savedLang = localStorage.getItem(LANG_KEY);
+  setLanguage(savedLang || DEFAULT_LANG, { rerender: false, save: false });
+
   // Load a gallery book if linked from Gallery page; otherwise restore localStorage
   const params    = new URLSearchParams(window.location.search);
   const galleryId = params.get('gallery_id');
@@ -1032,6 +1159,10 @@ loadProjectFile.addEventListener('change', async e => {
 
 async function restoreProject(project) {
   if (!project.story?.pages) return;
+
+  // Adopt the project's language (default zh for legacy projects without one).
+  const projectLang = project.story.language || project.language || DEFAULT_LANG;
+  setLanguage(projectLang, { rerender: false, save: false });
 
   conceptInput.value     = project.concept      ?? '';
   stylePromptInput.value = project.style_prompt  ?? '';

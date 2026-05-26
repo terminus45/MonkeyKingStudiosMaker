@@ -12,6 +12,21 @@
   gap: 2.5rem;
 }
 
+/* Decompose button row */
+.decompose-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-top: 1rem;
+}
+.decompose-btn-row .generate-btn {
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+.auto-gen-btn {
+  background: linear-gradient(135deg, #5a3a8a, #3a2060) !important;
+}
+
 /* Step sections */
 .builder-step {
   background: var(--paper);
@@ -255,10 +270,48 @@
   resize: vertical;
   min-height: 2.4rem;
 }
+.card-field.native-field textarea {
+  font-size: 1rem;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  min-height: 2rem;
+}
+.card-field.native-field.lang-ja textarea {
+  font-family: 'Noto Serif JP', 'Yu Mincho', serif;
+}
+.card-field.native-field.lang-ko textarea {
+  font-family: 'Noto Serif KR', 'Nanum Myeongjo', serif;
+}
+/* Back-compat for any code still using the old class name */
 .card-field.zh-field textarea {
   font-size: 1rem;
   font-family: 'Noto Serif SC', 'SimSun', serif;
   min-height: 2rem;
+}
+
+/* Language selector toggle (Step 1) */
+.lang-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--ctrl-bg);
+}
+.lang-btn {
+  background: transparent;
+  border: none;
+  padding: .4rem .9rem;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  border-right: 1px solid var(--border);
+}
+.lang-btn:last-child { border-right: none; }
+.lang-btn:hover { color: var(--gold); }
+.lang-btn.active {
+  background: var(--gold);
+  color: #fff;
 }
 .card-field.prompt-field {
   border-top: 1px dashed var(--border);

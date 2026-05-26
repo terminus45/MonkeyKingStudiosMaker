@@ -1,5 +1,30 @@
 /* Shared storybook HTML builder used by book_builder.js and gallery.js */
 
+// Minimal language metadata for the print template. Mirrors a subset of
+// LANG_META in book_builder.js / languages.py — only what print needs.
+const PRINT_LANG = {
+  zh: {
+    native_field: 'zh', reading_field: 'pinyin',
+    title_native_field: 'book_title_zh', title_reading_field: 'book_title_pinyin',
+    font_stack: "'Noto Serif SC', 'SimSun', serif",
+    html_lang: 'zh',
+  },
+  ja: {
+    native_field: 'ja', reading_field: 'romaji',
+    title_native_field: 'book_title_ja', title_reading_field: 'book_title_romaji',
+    font_stack: "'Noto Serif JP', 'Yu Mincho', serif",
+    html_lang: 'ja',
+  },
+  ko: {
+    native_field: 'ko', reading_field: 'romanization',
+    title_native_field: 'book_title_ko', title_reading_field: 'book_title_romanization',
+    font_stack: "'Noto Serif KR', 'Nanum Myeongjo', serif",
+    html_lang: 'ko',
+  },
+};
+const PRINT_DEFAULT_LANG = 'zh';
+function printLang(code) { return PRINT_LANG[code] || PRINT_LANG[PRINT_DEFAULT_LANG]; }
+
 function escHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -90,10 +115,21 @@ function _buildCharacters(zh, pinyin) {
 
 // ── Ruby text renderer ─────────────────────────────────────────────────────
 
-function renderZhPinyin(pg) {
-  const chars = (pg.characters && pg.characters.length)
-    ? pg.characters
-    : _buildCharacters(pg.zh, pg.pinyin);
+function renderRubyText(pg, langCode) {
+  const lang = printLang(langCode);
+  const nativeStr  = pg[lang.native_field]  ?? '';
+  const readingStr = pg[lang.reading_field] ?? '';
+
+  let chars = pg.characters;
+  if (!chars || !chars.length) {
+    // Fallback: only the zh schema has a deterministic syllable splitter.
+    // For ja/ko without a characters array, fall back to native text alone (no ruby).
+    if (langCode === 'zh' || !langCode) {
+      chars = _buildCharacters(nativeStr, readingStr);
+    } else {
+      return `<p class="text-ruby">${escHtml(nativeStr)}</p>`;
+    }
+  }
 
   const ruby = chars.map(({c, p}) =>
     p ? `<ruby>${escHtml(c)}<rt>${escHtml(p)}</rt></ruby>`
@@ -103,6 +139,11 @@ function renderZhPinyin(pg) {
 }
 
 function buildStorybookHTML(story, pages, imageB64, printMode = false) {
+  const langCode  = story.language || PRINT_DEFAULT_LANG;
+  const lang      = printLang(langCode);
+  const titleNative  = story[lang.title_native_field]  ?? '';
+  const titleReading = story[lang.title_reading_field] ?? '';
+
   const coverImg = imageB64[1]
     ? `<img src="${imageB64[1]}" alt="cover" class="cover-img">`
     : '';
@@ -116,7 +157,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
       <div class="spread-left">${img}</div>
       <div class="spread-right">
         <div class="page-num">Page ${pg.page}</div>
-        ${renderZhPinyin(pg)}
+        ${renderRubyText(pg, langCode)}
         <p class="text-en">${escHtml(pg.en)}</p>
       </div>
     </div>`;
@@ -128,7 +169,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
 <\/script>` : '';
 
   return `<!DOCTYPE html>
-<html lang="zh">
+<html lang="${escHtml(lang.html_lang)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -147,19 +188,19 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
     border-bottom: 2px solid #000;
   }
   .cover-img { max-width: 480px; width: 100%; border-radius: 4px; margin-bottom: 2rem; }
-  .cover-title-zh { font-size: 4rem; color: #000; letter-spacing: .1em;
-    font-family: 'Noto Serif SC','SimSun',serif; }
-  .cover-title-pinyin { font-size: 1.4rem; color: #555; margin: .5rem 0; }
+  .cover-title-native { font-size: 4rem; color: #000; letter-spacing: .1em;
+    font-family: ${lang.font_stack}; }
+  .cover-title-reading { font-size: 1.4rem; color: #555; margin: .5rem 0; }
   .cover-title-en { font-size: 1.9rem; color: #000; font-weight: 700; margin-top: .25rem; }
 
   .page-spread {
     display: grid; grid-template-columns: 1fr 1fr;
-    min-height: 100vh; background: #fff;
+    min-height: 50vw; max-height: 100vh; background: #fff;
     border-bottom: 1px solid #ccc;
   }
   .spread-left { display: flex; align-items: center; justify-content: center;
-    background: #f4f4f4; border-right: 1px solid #ccc; }
-  .page-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    background: #1a1a1a; border-right: 1px solid #ccc; overflow: hidden; }
+  .page-img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .page-img-placeholder { width: 100%; height: 100%; min-height: 320px;
     display: flex; align-items: center; justify-content: center;
     background: repeating-linear-gradient(
@@ -170,7 +211,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   .page-num { font-size: .8rem; font-weight: 700; text-transform: uppercase;
     letter-spacing: .1em; color: #999; }
   .text-ruby { font-size: 2.8rem; line-height: 3.2;
-    font-family: 'Noto Serif SC','SimSun',serif; color: #000; }
+    font-family: ${lang.font_stack}; color: #000; }
   ruby { ruby-align: center; }
   rt { font-size: .38em; color: #555; font-family: 'Segoe UI', system-ui, sans-serif;
     font-weight: 400; letter-spacing: 0; }
@@ -179,7 +220,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
 
   @media (max-width: 600px) {
     .page-spread { grid-template-columns: 1fr; }
-    .cover-title-zh { font-size: 2.5rem; }
+    .cover-title-native { font-size: 2.5rem; }
     .text-ruby { font-size: 2rem; }
     .text-en { font-size: 1.3rem; }
   }
@@ -200,8 +241,8 @@ ${printScript}
 <div class="book">
   <div class="cover">
     ${coverImg}
-    <h1 class="cover-title-zh">${escHtml(story.book_title_zh)}</h1>
-    <p class="cover-title-pinyin">${escHtml(story.book_title_pinyin)}</p>
+    <h1 class="cover-title-native">${escHtml(titleNative)}</h1>
+    <p class="cover-title-reading">${escHtml(titleReading)}</p>
     <p class="cover-title-en">${escHtml(story.book_title_en)}</p>
   </div>
   ${pageSpread}

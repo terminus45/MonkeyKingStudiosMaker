@@ -42,7 +42,16 @@
         </div>
       </div>
 
-      <div class="concept-row">
+      <div class="control-group">
+        <label>Language</label>
+        <div class="lang-toggle" id="langToggle">
+          <button class="lang-btn active" data-lang="zh">中文</button>
+          <button class="lang-btn"        data-lang="ja">日本語</button>
+          <button class="lang-btn"        data-lang="ko">한국어</button>
+        </div>
+      </div>
+
+      <div class="concept-row" style="margin-top:.75rem">
         <textarea id="conceptInput" rows="4"
           placeholder="Describe your storybook idea… e.g. 'Sun Wukong learns to share with the animals of the forest'"></textarea>
       </div>
@@ -64,10 +73,16 @@
         </div>
       </div>
 
-      <button id="decomposeBtn" class="generate-btn" style="max-width:320px;margin-top:1rem">
-        <span id="decomposeLabel">✦ Create Story with Claude</span>
-        <div class="spinner hidden" id="decomposeSpinner"></div>
-      </button>
+      <div class="decompose-btn-row">
+        <button id="decomposeBtn" class="generate-btn">
+          <span id="decomposeLabel">✦ Create Story with Claude</span>
+          <div class="spinner hidden" id="decomposeSpinner"></div>
+        </button>
+        <button id="autoGenBtn" class="generate-btn auto-gen-btn">
+          <span id="autoGenLabel">⚡ Create Story + Generate Images</span>
+          <div class="spinner hidden" id="autoGenSpinner"></div>
+        </button>
+      </div>
       <p class="hint-text" id="decomposeHint"></p>
 
       <div class="import-divider"><span>or import from table</span></div>
@@ -81,16 +96,16 @@
               <input type="text" id="importTitleEn" placeholder="My Storybook">
             </div>
             <div class="control-group" style="flex:1.5">
-              <label>书名（中文）</label>
-              <input type="text" id="importTitleZh" placeholder="故事书">
+              <label id="importTitleNativeLabel">Native Title</label>
+              <input type="text" id="importTitleNative" placeholder="">
             </div>
             <div class="control-group" style="flex:1.5">
-              <label>Title Pinyin</label>
-              <input type="text" id="importTitlePinyin" placeholder="Gùshì shū">
+              <label id="importTitleReadingLabel">Reading</label>
+              <input type="text" id="importTitleReading" placeholder="">
             </div>
           </div>
           <div class="control-group" style="margin-top:.5rem">
-            <label>Table data <span class="hint">(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)</span></label>
+            <label>Table data <span class="hint" id="tableHeadersHint">(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)</span></label>
             <textarea id="tableInput" rows="7" placeholder="Paste your table here…"></textarea>
           </div>
           <button id="parseTableBtn" class="generate-btn" style="max-width:260px;margin-top:.75rem">

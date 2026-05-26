@@ -61,10 +61,12 @@ function buildBookCard(book) {
 
   const imagesLabel = `${book.images_generated} / ${book.page_count} images`;
 
+  const langClass = `lang-${book.language || 'zh'}`;
+
   card.innerHTML = `
     <div class="book-cover">${coverHTML}</div>
     <div class="book-info">
-      <div class="book-title-zh">${escHtml(book.title_zh)}</div>
+      <div class="book-title-native ${langClass}">${escHtml(book.title_native || '')}</div>
       <div class="book-title-en">${escHtml(book.title_en)}</div>
       <div class="book-meta">${date} · ${imagesLabel}</div>
     </div>

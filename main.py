@@ -28,6 +28,7 @@ from config import (
 )
 from generator import generator, discover_models, discover_loras
 import gemini_generator
+import languages
 
 
 @asynccontextmanager
@@ -360,69 +361,106 @@ def list_gemini_models():
     return {"models": gemini_generator.GEMINI_MODELS}
 
 
-_DECOMPOSE_SYSTEM = """\
-You are a bilingual children's storybook author specialising in Chinese-English picture books \
-for learners aged 4–8. When given a book concept, you decompose it into exactly 10 pages.
-
-Return ONLY a valid JSON object — no markdown fences, no prose before or after — with this shape:
-{
-  "book_title_zh": "...",
-  "book_title_pinyin": "...",
-  "book_title_en": "...",
-  "pages": [
-    {
-      "page": 1,
-      "zh": "Simplified Chinese sentence (10–18 characters)",
-      "pinyin": "Full pinyin string with tone marks for every syllable",
-      "en": "Natural English translation (1–2 short sentences)",
-      "image_prompt": "Detailed Stable Diffusion image prompt in English (25–45 words, \
-no character names, describe visual scene only)",
-      "characters": [
-        {"c": "汉", "p": "hàn"},
-        {"c": "字", "p": "zì"},
-        {"c": "。", "p": ""}
-      ]
-    }
-    // … pages 2–10
-  ]
-}
-
-Rules:
-- zh must be Simplified Chinese only, 10–18 characters per page
-- pinyin must have tone marks on every vowel
-- en must be natural children's-book English
-- image_prompt must be purely visual, evocative, and self-contained — \
-describe lighting, mood, setting, characters' appearance and action
-- characters must contain exactly one entry per character in zh (including punctuation)
-- each entry: "c" is the single character, "p" is its pinyin syllable with tone marks
-- punctuation (，。！？、…—""''（）) must have "p": "" (empty string)
-- neutral-tone syllables (e.g. 子 zi, 的 de) should have no tone mark\
-"""
-
-
 class DecomposeRequest(BaseModel):
     concept: str
     style_suffix: Optional[str] = ""
+    language: Optional[str] = "zh"
 
 
 class CharData(BaseModel):
     c: str
     p: str
 
+
 class PageData(BaseModel):
     page: int
-    zh: str
-    pinyin: str
     en: str
     image_prompt: str
     characters: Optional[list[CharData]] = None
+    # zh variant
+    zh: Optional[str] = None
+    pinyin: Optional[str] = None
+    # ja variant
+    ja: Optional[str] = None
+    romaji: Optional[str] = None
+    # ko variant
+    ko: Optional[str] = None
+    romanization: Optional[str] = None
 
 
 class DecomposeResponse(BaseModel):
-    book_title_zh: str
-    book_title_pinyin: str
     book_title_en: str
     pages: list[PageData]
+    language: Optional[str] = "zh"
+    # zh variant
+    book_title_zh: Optional[str] = None
+    book_title_pinyin: Optional[str] = None
+    # ja variant
+    book_title_ja: Optional[str] = None
+    book_title_romaji: Optional[str] = None
+    # ko variant
+    book_title_ko: Optional[str] = None
+    book_title_romanization: Optional[str] = None
+
+
+@app.get("/languages")
+def list_languages():
+    """Frontend-facing language registry (without system prompts)."""
+    return {"languages": languages.public_metadata(), "default": languages.DEFAULT_LANGUAGE}
+
+
+def _decompose_tool(lang: dict) -> dict:
+    """Build a tool definition that constrains Claude's output to the storybook schema
+    for the given language. Using a tool guarantees structurally valid JSON — the API
+    validates the input against this schema before returning."""
+    native_f  = lang["native_field"]
+    reading_f = lang["reading_field"]
+    title_n_f = lang["title_native_field"]
+    title_r_f = lang["title_reading_field"]
+    name = lang["english_name"]
+    reading_label = lang["reading_label"]
+    return {
+        "name": "submit_storybook",
+        "description": f"Submit the decomposed 10-page {name}-English storybook.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                title_n_f:       {"type": "string", "description": f"Book title in {name}"},
+                title_r_f:       {"type": "string", "description": f"Book title {reading_label.lower()}"},
+                "book_title_en": {"type": "string", "description": "Book title in English"},
+                "pages": {
+                    "type": "array",
+                    "minItems": 10,
+                    "maxItems": 10,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "page":         {"type": "integer", "minimum": 1, "maximum": 10},
+                            native_f:       {"type": "string", "description": f"Page sentence in {name}"},
+                            reading_f:      {"type": "string", "description": reading_label},
+                            "en":           {"type": "string", "description": "English translation"},
+                            "image_prompt": {"type": "string"},
+                            "characters": {
+                                "type": "array",
+                                "description": "Per-character (or per-token) entries with reading annotations.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "c": {"type": "string"},
+                                        "p": {"type": "string"},
+                                    },
+                                    "required": ["c", "p"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["page", native_f, reading_f, "en", "image_prompt", "characters"],
+                    },
+                },
+            },
+            "required": [title_n_f, title_r_f, "book_title_en", "pages"],
+        },
+    }
 
 
 @app.post("/decompose", response_model=DecomposeResponse)
@@ -431,52 +469,60 @@ def decompose(req: DecomposeRequest):
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
 
+    lang = languages.get(req.language)
     client = anthropic.Anthropic(api_key=api_key)
 
     user_content = req.concept.strip()
     if req.style_suffix:
         user_content += f"\n\nApply this visual style to every image_prompt: {req.style_suffix}"
 
+    tool = _decompose_tool(lang)
+
     try:
         with client.messages.stream(
             model="claude-opus-4-7",
             max_tokens=8192,
-            thinking={"type": "adaptive"},
             system=[
                 {
                     "type": "text",
-                    "text": _DECOMPOSE_SYSTEM,
+                    "text": lang["prompt"],
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
             messages=[{"role": "user", "content": user_content}],
-            timeout=120,
+            timeout=180,
         ) as stream:
             msg = stream.get_final_message()
     except anthropic.APIError as e:
         raise HTTPException(status_code=502, detail=f"Claude API error: {e}")
 
-    raw = ""
+    # Prefer the tool_use block (structurally validated). Fall back to text parsing
+    # only if the model somehow ignored the forced tool_choice.
+    data = None
     for block in msg.content:
-        if block.type == "text":
-            raw = block.text
+        if block.type == "tool_use" and block.name == tool["name"]:
+            data = block.input
             break
 
-    # Strip markdown fences if Claude wrapped anyway
-    raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
-    raw = re.sub(r"\n?```$", "", raw.strip())
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not m:
-            raise HTTPException(status_code=500, detail="Claude returned non-JSON output.")
+    if data is None:
+        raw = ""
+        for block in msg.content:
+            if block.type == "text":
+                raw = block.text
+                break
+        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+        raw = re.sub(r"\n?```$", "", raw.strip())
         try:
-            data = json.loads(m.group(0))
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Claude returned non-JSON output.")
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Claude did not return a tool call and text was unparseable: {e}\n\nRaw output:\n{raw}",
+            )
 
+    data["language"] = lang["code"]
     return data
 
 
@@ -520,10 +566,15 @@ def _read_gallery_meta(path: Path) -> dict:
     data   = json.loads(path.read_text(encoding="utf-8"))
     story  = data.get("story", {})
     images = data.get("generated_images", {})
+    # Language is stored on the story (or on the project root for older saves).
+    # Fall back to "zh" for legacy books written before multi-language support.
+    lang_code = story.get("language") or data.get("language") or "zh"
+    lang = languages.get(lang_code)
     return {
         "id":               path.stem,
-        "title_zh":         story.get("book_title_zh", ""),
-        "title_pinyin":     story.get("book_title_pinyin", ""),
+        "language":         lang["code"],
+        "title_native":     story.get(lang["title_native_field"], ""),
+        "title_reading":    story.get(lang["title_reading_field"], ""),
         "title_en":         story.get("book_title_en", "Untitled"),
         "saved_at":         data.get("saved_at", ""),
         "page_count":       len(story.get("pages", [])),
