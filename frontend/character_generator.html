@@ -42,38 +42,64 @@
 
       <!-- LEFT: Controls panel -->
       <aside class="cg-controls-panel" aria-label="Character generation controls">
-        <div class="builder-step" id="cgControlCard" style="border-left: 5px solid var(--mustard)">
+
+        <!-- SHARED INPUTS PANEL -->
+        <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
+             style="border-left: 5px solid var(--teal)">
 
           <div class="step-header">
-            <h2>Character Details</h2>
+            <h2>Your Story</h2>
+            <span class="sync-badge" tabindex="0"
+                  title="Editing here updates Character Generator, Book Builder, and Figure Maker"
+                  aria-label="These fields sync across all three tabs">
+              <svg class="sync-icon" aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+              Shared across tabs
+            </span>
           </div>
 
-          <!-- CHARACTER DESCRIPTION -->
-          <div class="control-group" id="cgDescGroup">
+          <p class="hint shared-tab-hint" id="sharedTabHint">
+            Character Generator mainly uses Character and Style — Story adds optional scene context.
+          </p>
+
+          <!-- CHARACTER DESCRIPTION — PRIMARY emphasis -->
+          <div class="control-group shared-field-primary" id="cgDescGroup">
             <label for="cgDescInput">Character Description</label>
             <textarea
               id="cgDescInput"
-              rows="4"
+              rows="3"
               placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
               aria-describedby="cgDescHint"
-              required
             ></textarea>
-            <p class="hint" id="cgDescHint">
-              Describe your hero's appearance, personality, and any key props.
-            </p>
+            <p class="hint" id="cgDescHint">Appearance, personality, and any props or outfit details.</p>
           </div>
 
-          <!-- STYLE PROMPT -->
-          <div class="control-group" id="cgStyleGroup" style="margin-top: .9rem">
-            <label for="cgStyleInput">
-              Style Prompt <span class="hint">(optional — applied to the portrait)</span>
-            </label>
+          <!-- STORY PROMPT — secondary (new field) -->
+          <div class="control-group" id="cgStoryGroup" style="margin-top: .9rem">
+            <label for="cgStoryInput">Story Prompt <span class="hint">(optional — sets scene context)</span></label>
+            <textarea
+              id="cgStoryInput"
+              rows="2"
+              placeholder="e.g. Standing at the entrance of a magic cave at sunrise…"
+              aria-describedby="cgStoryHint"
+            ></textarea>
+            <p class="hint" id="cgStoryHint">The scenario or setting for the portrait.</p>
+          </div>
+
+          <!-- STYLE PROMPT — PRIMARY emphasis -->
+          <div class="control-group shared-field-primary" id="cgStyleGroup" style="margin-top: .9rem">
+            <label for="cgStyleInput">Style Prompt</label>
             <textarea
               id="cgStyleInput"
               rows="2"
-              placeholder="e.g. Vibrant watercolor, children's book art, warm tones…"
+              placeholder="Soft watercolor, children's book art, warm pastel tones…"
+              aria-describedby="cgStyleHint"
             ></textarea>
-            <div class="presets" id="cgStylePresets" role="group" aria-label="Style presets" style="margin-top: .4rem">
+            <p class="hint" id="cgStyleHint">The visual art style for the portrait.</p>
+            <div class="presets shared-style-presets" id="cgStylePresets"
+                 role="group" aria-label="Style presets" style="margin-top: .4rem">
               <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
               <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
               <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
@@ -82,8 +108,14 @@
             </div>
           </div>
 
-          <!-- GEMINI OPTIONS ROW -->
-          <div class="control-group" id="cgGeminiGroup" style="margin-top: .9rem">
+        </div>
+        <!-- END SHARED INPUTS PANEL -->
+
+        <!-- TAB-SPECIFIC: Gemini model + aspect ratio -->
+        <div class="builder-step" id="cgTabControls"
+             style="border-left: 5px solid var(--mustard); margin-top: 1rem">
+
+          <div class="control-group" id="cgGeminiGroup">
             <div class="gemini-options-row">
 
               <div class="gemini-opt">
@@ -110,21 +142,22 @@
             </div>
           </div>
 
-          <!-- GENERATE BUTTON -->
-          <button
-            class="generate-btn"
-            id="cgGenerateBtn"
-            style="width: 100%; margin-top: 1.25rem"
-            aria-live="polite"
-          >
-            <span id="cgGenerateLabel">🎭 Generate Character</span>
-            <div class="spinner hidden" id="cgSpinner" aria-hidden="true"></div>
-          </button>
-
-          <!-- INLINE ERROR (controls panel) -->
-          <p class="cg-error hidden" id="cgErrorMsg" role="alert" aria-live="assertive"></p>
-
         </div>
+
+        <!-- GENERATE BUTTON -->
+        <button
+          class="generate-btn"
+          id="cgGenerateBtn"
+          style="width: 100%; margin-top: 1rem"
+          aria-live="polite"
+        >
+          <span id="cgGenerateLabel">🎭 Generate Character</span>
+          <div class="spinner hidden" id="cgSpinner" aria-hidden="true"></div>
+        </button>
+
+        <!-- INLINE ERROR (controls panel) -->
+        <p class="cg-error hidden" id="cgErrorMsg" role="alert" aria-live="assertive"></p>
+
       </aside>
 
       <!-- RIGHT: Result area -->
@@ -191,6 +224,7 @@
 
   </main>
 
+  <script src="shared_inputs.js"></script>
   <script src="character_generator.js"></script>
 </body>
 </html>

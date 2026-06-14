@@ -5,6 +5,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const API = window.location.origin;
 
+// window.SharedInputs is set by shared_inputs.js (non-module, loaded before this module)
+// Field map: character=fmPromptInput (existing), style=fmStyleInput (new), story=fmStoryInput (new)
+
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const statusDot            = document.getElementById('statusDot');
 const statusLabel          = document.getElementById('statusLabel');
@@ -13,6 +16,9 @@ const fmBoltMascot         = document.getElementById('fmBoltMascot');
 const fmBoltText           = document.getElementById('fmBoltText');
 
 const fmPromptInput        = document.getElementById('fmPromptInput');
+const fmStoryInput         = document.getElementById('fmStoryInput');
+const fmStyleInput         = document.getElementById('fmStyleInput');
+const fmStylePresets       = document.getElementById('fmStylePresets');
 const fmChips              = document.getElementById('fmChips');
 const fmGenerateBtn        = document.getElementById('fmGenerateBtn');
 const fmGenerateLabel      = document.getElementById('fmGenerateLabel');
@@ -156,6 +162,99 @@ function hideError() {
   fmErrorMsg.classList.add('hidden');
 }
 
+// ── Draft persistence — keep only non-shared fields (chip) ───────────────────
+const FM_DRAFT_KEY = 'monkeyking_fm_draft';
+
+function saveFmDraft() {
+  try {
+    const activeChip = fmChips.querySelector('.preset.active');
+    const draft = {
+      chip: activeChip ? activeChip.dataset.prompt : null,
+      // prompt/style/story are NOT saved here — they live in SharedInputs
+    };
+    localStorage.setItem(FM_DRAFT_KEY, JSON.stringify(draft));
+  } catch { /* quota / private-mode */ }
+}
+
+function restoreFmDraft() {
+  try {
+    const raw = localStorage.getItem(FM_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    // Re-apply active chip by directly adding .active — do NOT dispatch synthetic input
+    // (the input handler strips all .active on the chips, which would wipe the restored chip)
+    if (draft.chip) {
+      fmChips.querySelectorAll('.preset').forEach(b => {
+        if (b.dataset.prompt === draft.chip) b.classList.add('active');
+      });
+    }
+  } catch { /* corrupted draft */ }
+}
+
+// ── Shared inputs — restore from store, wire live-sync ───────────────────────
+function restoreSharedInputs() {
+  const s = window.SharedInputs.read();
+  // Set values directly — never dispatch synthetic input events
+  // This avoids triggering the chip-strip handler on fmPromptInput
+  fmPromptInput.value = s.character;
+  fmStyleInput.value  = s.style;
+  fmStoryInput.value  = s.story;
+
+  // Restore active style preset pill
+  fmStylePresets.querySelectorAll('.preset').forEach(p => {
+    p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+  });
+}
+
+function wireSharedInputListeners() {
+  let _charTimer = null, _storyTimer = null, _styleTimer = null;
+
+  // fmPromptInput is the character field
+  // NOTE: input event here also deactivates chips (existing behaviour) — that is fine
+  fmPromptInput.addEventListener('input', () => {
+    clearTimeout(_charTimer);
+    _charTimer = setTimeout(() => window.SharedInputs.patch({ character: fmPromptInput.value }), 300);
+  });
+
+  fmStoryInput.addEventListener('input', () => {
+    clearTimeout(_storyTimer);
+    _storyTimer = setTimeout(() => window.SharedInputs.patch({ story: fmStoryInput.value }), 300);
+  });
+
+  fmStyleInput.addEventListener('input', () => {
+    clearTimeout(_styleTimer);
+    _styleTimer = setTimeout(() => window.SharedInputs.patch({ style: fmStyleInput.value }), 300);
+  });
+
+  // Live cross-tab sync — set .value directly, do NOT trigger input side-effects
+  window.SharedInputs.onExternalChange(s => {
+    fmPromptInput.value = s.character;
+    fmStyleInput.value  = s.style;
+    fmStoryInput.value  = s.story;
+    fmStylePresets.querySelectorAll('.preset').forEach(p => {
+      p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+    });
+  });
+}
+
+// ── Style preset pills (new fmStylePresets) ───────────────────────────────────
+fmStylePresets.addEventListener('click', e => {
+  const btn = e.target.closest('.preset');
+  if (!btn) return;
+
+  const suffix = btn.dataset.suffix;
+  fmStylePresets.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
+
+  if (suffix === '') {
+    fmStyleInput.value = '';
+  } else {
+    btn.classList.add('active');
+    fmStyleInput.value = suffix;
+  }
+  window.SharedInputs.patch({ style: fmStyleInput.value });
+  saveFmDraft();
+});
+
 // ── Chip behaviour ────────────────────────────────────────────────────────────
 fmChips.addEventListener('click', e => {
   const btn = e.target.closest('.preset');
@@ -174,6 +273,9 @@ fmChips.addEventListener('click', e => {
     btn.classList.add('active');
     fmPromptInput.value = prompt;
   }
+  // Patch shared store (chip selection sets the character field)
+  window.SharedInputs.patch({ character: fmPromptInput.value });
+  saveFmDraft();
 });
 
 // Typing in textarea deactivates chips
@@ -211,7 +313,11 @@ fmGenerateBtn.addEventListener('click', async () => {
     const res = await fetch(`${API}/figure/generate`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ prompt }),
+      body:    JSON.stringify({
+        prompt,
+        style: fmStyleInput.value.trim(),
+        story: fmStoryInput.value.trim(),
+      }),
     });
 
     if (!res.ok) {
@@ -336,8 +442,12 @@ fmResetBtn.addEventListener('click', () => {
   _glbUrl    = null;
   _stlUrl    = null;
 
+  // Clear character field and shared store entry
   fmPromptInput.value = '';
+  window.SharedInputs.patch({ character: '' });
+
   fmChips.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+  try { localStorage.removeItem(FM_DRAFT_KEY); } catch { /* private-mode */ }
 
   hideError();
   fmEnhancedPromptBox.classList.add('hidden');
@@ -468,6 +578,16 @@ function mountViewer(glbUrl) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
+
+  // Restore shared inputs (character/style/story)
+  restoreSharedInputs();
+
+  // Restore FM-specific draft (chip active state) AFTER shared restore so
+  // chip .active is set after the prompt value is already populated
+  restoreFmDraft();
+
+  // Wire live-sync listeners
+  wireSharedInputListeners();
 })();
 
 setInterval(checkHealth, 30_000);

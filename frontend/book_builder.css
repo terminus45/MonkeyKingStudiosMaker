@@ -31,29 +31,13 @@
   background: var(--teal-dark) !important;
 }
 
-/* Step sections */
-.builder-step {
-  background: #faf7f2;
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.5rem;
-}
-.builder-step.hidden { display: none; }
+/* Step sections — base .builder-step and .step-header now live in style.css */
 
 /* Colorful left border per step */
 #step1 { border-left: 5px solid var(--terracotta); }
 #step2 { border-left: 5px solid var(--mustard); }
 #step3 { border-left: 5px solid var(--teal); }
 #step4 { border-left: 5px solid var(--olive); }
-
-.step-header {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-  margin-bottom: 1.1rem;
-  flex-wrap: wrap;
-}
 
 .project-actions {
   margin-left: auto;
@@ -107,11 +91,7 @@
   box-shadow: 0 2px 6px rgba(107,124,58,.25);
 }
 
-.step-header h2 {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--ink);
-}
+/* .step-header h2 base rule now lives in style.css */
 
 .section-sub {
   font-size: .85rem;

@@ -22,29 +22,7 @@
 }
 
 /* ── Controls panel ── */
-
-/* .builder-step / .step-header are defined in book_builder.css, which this
-   page does not load — redeclare the card styling here so the controls card
-   renders with the MCM card treatment (mustard left border set inline below). */
-.cg-controls-panel .builder-step {
-  background: #faf7f2;
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.5rem;
-}
-.cg-controls-panel .step-header {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-  margin-bottom: 1.1rem;
-  flex-wrap: wrap;
-}
-.cg-controls-panel .step-header h2 {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--ink);
-}
+/* .builder-step and .step-header base rules now live in style.css */
 
 .cg-controls-panel {
   /* Sticky so controls stay in view while result scrolls on tall viewports */

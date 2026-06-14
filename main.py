@@ -380,6 +380,7 @@ def list_gemini_models():
 class DecomposeRequest(BaseModel):
     concept: str
     style_suffix: Optional[str] = ""
+    character: Optional[str] = ""          # shared main-character description
     language: Optional[str] = "zh"
     anthropic_key: Optional[str] = None   # per-request override (mobile clients)
 
@@ -490,6 +491,13 @@ def decompose(req: DecomposeRequest):
     client = anthropic.Anthropic(api_key=api_key)
 
     user_content = req.concept.strip()
+    if req.character and req.character.strip():
+        user_content += (
+            f"\n\nThe protagonist is: {req.character.strip()}. "
+            "This same character must appear on every page and be described "
+            "CONSISTENTLY (same appearance, outfit, colors) in every image_prompt, "
+            "using visual description only — never the character's name."
+        )
     if req.style_suffix:
         user_content += f"\n\nApply this visual style to every image_prompt: {req.style_suffix}"
 
@@ -857,8 +865,13 @@ _REPORT_SYSTEM = (
 )
 
 
-def _enhance_figure_prompt(child_prompt: str, api_key: str) -> str:
-    """Call Claude to rewrite child_prompt into a strong Meshy prompt."""
+def _enhance_figure_prompt(child_prompt: str, api_key: str,
+                           style: str = "", story: str = "") -> str:
+    """Call Claude to rewrite child_prompt into a strong Meshy prompt.
+
+    style/story are optional shared inputs woven into the user content as
+    additional guidance; the size constraint stays enforced by _ENHANCE_SYSTEM.
+    """
     tool = {
         "name": "submit_prompt",
         "description": "Submit the enhanced 3D print prompt.",
@@ -877,6 +890,13 @@ def _enhance_figure_prompt(child_prompt: str, api_key: str) -> str:
             "additionalProperties": False,
         },
     }
+    parts = [child_prompt.strip()]
+    if style and style.strip():
+        parts.append(f"Visual style: {style.strip()}.")
+    if story and story.strip():
+        parts.append(f"Context / pose / accessories: {story.strip()}.")
+    user_msg = "\n".join(parts)
+
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -884,7 +904,7 @@ def _enhance_figure_prompt(child_prompt: str, api_key: str) -> str:
         system=_ENHANCE_SYSTEM,
         tools=[tool],
         tool_choice={"type": "tool", "name": "submit_prompt"},
-        messages=[{"role": "user", "content": child_prompt}],
+        messages=[{"role": "user", "content": user_msg}],
         timeout=30,
     )
     for block in msg.content:
@@ -977,14 +997,15 @@ def _poll_until_done(task_id: str, job_id: str, meshy_key: str,
 
 
 def _run_figure_job(job_id: str, child_prompt: str,
-                    anthropic_key: str, meshy_key: str) -> None:
+                    anthropic_key: str, meshy_key: str,
+                    style: str = "", story: str = "") -> None:
     """Background worker: full pipeline from prompt → GLB → report."""
     import time
 
     try:
         # Stage: prompting
         _job_update(job_id, {"stage": "prompting", "progress": 2})
-        enhanced = _enhance_figure_prompt(child_prompt, anthropic_key)
+        enhanced = _enhance_figure_prompt(child_prompt, anthropic_key, style, story)
         _job_update(job_id, {"enhanced_prompt": enhanced, "progress": 8})
 
         # Stage: preview
@@ -1063,6 +1084,8 @@ def _run_figure_job(job_id: str, child_prompt: str,
 
 class FigureGenerateRequest(BaseModel):
     prompt: str
+    style: Optional[str] = ""              # shared style prompt (shapes the look)
+    story: Optional[str] = ""             # shared story prompt (context/pose)
     anthropic_key: Optional[str] = None
     meshy_key: Optional[str] = None
 
@@ -1094,7 +1117,8 @@ def figure_generate(req: FigureGenerateRequest):
 
     thread = threading.Thread(
         target=_run_figure_job,
-        args=(job_id, req.prompt.strip(), resolved_anthropic_key, resolved_meshy_key),
+        args=(job_id, req.prompt.strip(), resolved_anthropic_key, resolved_meshy_key,
+              (req.style or "").strip(), (req.story or "").strip()),
         daemon=True,
     )
     thread.start()

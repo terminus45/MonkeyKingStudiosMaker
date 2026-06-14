@@ -59,25 +59,82 @@
 
       <!-- RIGHT column: Controls/prompt panel (right on desktop, first on mobile) -->
       <aside class="fm-controls-panel" aria-label="Figure generation controls">
-        <div class="fm-controls-card" id="fmControlCard" style="border-left: 5px solid var(--mustard)">
 
-          <div class="fm-controls-header">
-            <h2>What do you want to build?</h2>
+        <!-- SHARED INPUTS PANEL -->
+        <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
+             style="border-left: 5px solid var(--teal)">
+
+          <div class="step-header">
+            <h2>Your Story</h2>
+            <span class="sync-badge" tabindex="0"
+                  title="Editing here updates Character Generator, Book Builder, and Figure Maker"
+                  aria-label="These fields sync across all three tabs">
+              <svg class="sync-icon" aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+              Shared across tabs
+            </span>
           </div>
 
-          <!-- Prompt input -->
-          <div class="control-group" id="fmPromptGroup">
-            <label for="fmPromptInput">Describe your figure</label>
+          <p class="hint shared-tab-hint" id="sharedTabHint">
+            Figure Maker mainly uses Character — Style shapes how it looks; Story adds context.
+          </p>
+
+          <!-- CHARACTER DESCRIPTION — PRIMARY emphasis (existing fmPromptInput) -->
+          <div class="control-group shared-field-primary" id="fmPromptGroup">
+            <label for="fmPromptInput">Character Description</label>
             <textarea
               id="fmPromptInput"
               rows="4"
-              placeholder="A roaring T-Rex with tiny arms…"
+              placeholder="A roaring T-Rex with tiny arms and a friendly smile…"
               aria-describedby="fmPromptHint"
               maxlength="500"
             ></textarea>
-            <p class="hint" id="fmPromptHint">
-              Type anything — Bolt will help turn it into a great 3D design!
-            </p>
+            <p class="hint" id="fmPromptHint">Describe what you want to build — this is what Bolt will design.</p>
+          </div>
+
+          <!-- STORY PROMPT — secondary (new field) -->
+          <div class="control-group" id="fmStoryGroup" style="margin-top: .9rem">
+            <label for="fmStoryInput">Story Prompt <span class="hint">(optional — adds context)</span></label>
+            <textarea
+              id="fmStoryInput"
+              rows="2"
+              placeholder="e.g. A jungle adventure story where the T-Rex is the hero…"
+              aria-describedby="fmStoryHint"
+            ></textarea>
+            <p class="hint" id="fmStoryHint">What story is this figure part of?</p>
+          </div>
+
+          <!-- STYLE PROMPT — secondary (new field) -->
+          <div class="control-group" id="fmStyleGroup" style="margin-top: .9rem">
+            <label for="fmStyleInput">Style Prompt <span class="hint">(optional)</span></label>
+            <textarea
+              id="fmStyleInput"
+              rows="2"
+              placeholder="Soft watercolor, children's book art, warm pastel tones…"
+              aria-describedby="fmStyleHint"
+            ></textarea>
+            <p class="hint" id="fmStyleHint">The visual style (also used by Character Generator and Book Builder).</p>
+            <div class="presets shared-style-presets" id="fmStylePresets"
+                 role="group" aria-label="Style presets" style="margin-top: .4rem">
+              <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+              <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+              <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+              <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+              <button class="preset" data-suffix="">Clear</button>
+            </div>
+          </div>
+
+        </div>
+        <!-- END SHARED INPUTS PANEL -->
+
+        <!-- TAB-SPECIFIC: Quick-pick chips -->
+        <div class="fm-controls-card" id="fmTabControls"
+             style="border-left: 5px solid var(--mustard); margin-top: 1rem">
+
+          <div class="fm-controls-header">
+            <h2>What do you want to build?</h2>
           </div>
 
           <!-- Quick-pick chips -->
@@ -94,34 +151,35 @@
             </div>
           </div>
 
-          <!-- Generate button -->
-          <button
-            class="generate-btn"
-            id="fmGenerateBtn"
-            style="width: 100%; margin-top: 1.25rem"
-          >
-            <span id="fmGenerateLabel">🧩 Build my figure!</span>
-            <div class="spinner hidden" id="fmSpinner" aria-hidden="true"></div>
-          </button>
-
-          <!-- Enhanced prompt reveal -->
-          <div class="fm-enhanced-prompt hidden" id="fmEnhancedPromptBox" aria-live="polite">
-            <p class="fm-enhanced-label">Bolt's version of your idea:</p>
-            <p id="fmEnhancedPromptText"></p>
-          </div>
-
-          <!-- Inline error -->
-          <p class="cg-error hidden" id="fmErrorMsg" role="alert" aria-live="assertive"></p>
-
-          <!-- Make another -->
-          <button
-            class="settings-btn hidden"
-            id="fmResetBtn"
-            style="width: 100%; margin-top: .75rem; justify-content: center;"
-            aria-label="Clear and start over"
-          >↺ Make another</button>
-
         </div>
+
+        <!-- Generate button -->
+        <button
+          class="generate-btn"
+          id="fmGenerateBtn"
+          style="width: 100%; margin-top: 1rem"
+        >
+          <span id="fmGenerateLabel">🧩 Build my figure!</span>
+          <div class="spinner hidden" id="fmSpinner" aria-hidden="true"></div>
+        </button>
+
+        <!-- Enhanced prompt reveal -->
+        <div class="fm-enhanced-prompt hidden" id="fmEnhancedPromptBox" aria-live="polite">
+          <p class="fm-enhanced-label">Bolt's version of your idea:</p>
+          <p id="fmEnhancedPromptText"></p>
+        </div>
+
+        <!-- Inline error -->
+        <p class="cg-error hidden" id="fmErrorMsg" role="alert" aria-live="assertive"></p>
+
+        <!-- Make another -->
+        <button
+          class="settings-btn hidden"
+          id="fmResetBtn"
+          style="width: 100%; margin-top: .75rem; justify-content: center;"
+          aria-label="Clear and start over"
+        >↺ Make another</button>
+
       </aside>
 
       <!-- LEFT column: Viewer + report area -->
@@ -207,6 +265,7 @@
 
   </main>
 
+  <script src="shared_inputs.js"></script>
   <script type="module" src="figure_maker.js"></script>
 </body>
 </html>

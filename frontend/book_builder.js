@@ -48,6 +48,7 @@ let currentLang = DEFAULT_LANG;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const conceptInput      = document.getElementById('conceptInput');
+const characterInput    = document.getElementById('characterInput');
 const stylePromptInput  = document.getElementById('stylePromptInput');
 const saveProjectBtn    = document.getElementById('saveProjectBtn');
 const clearProjectBtn   = document.getElementById('clearProjectBtn');
@@ -114,6 +115,9 @@ const gallerySpinner  = document.getElementById('gallerySpinner');
 
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
+
+// Step 1 style presets (shared-inputs-inline section, id="stylePresets")
+const step1StylePresets = document.getElementById('stylePresets');
 
 // ── Language selector ──────────────────────────────────────────────────────
 function applyLanguageToUI(code) {
@@ -208,16 +212,21 @@ loraScaleEl2.addEventListener('input', () => {
   loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
 });
 
-// ── Style presets (Step 1 decompose style) ─────────────────────────────────
-document.getElementById('stylePresets').addEventListener('click', e => {
+// ── Style presets (Step 1 shared inputs — stylePresets) ────────────────────
+step1StylePresets.addEventListener('click', e => {
   const btn = e.target.closest('.preset');
-  if (!btn || btn.closest('#step3')) return;   // ignore Step 3 presets here
+  if (!btn) return;
   stylePromptInput.value = btn.dataset.suffix;
+  // Deactivate all presets in step1, activate clicked
+  step1StylePresets.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
+  if (btn.dataset.suffix !== '') btn.classList.add('active');
+  // Patch shared store
+  SharedInputs.patch({ style: stylePromptInput.value });
 });
 
 // ── Step 3 gen style presets ───────────────────────────────────────────────
 step3.addEventListener('click', e => {
-  const btn = e.target.closest('#step3 #stylePresets .preset');
+  const btn = e.target.closest('#genStylePresets .preset');
   if (!btn) return;
   genStylePrompt.value = btn.dataset.suffix;
   saveGenSettings();
@@ -418,6 +427,7 @@ async function runDecompose() {
         concept,
         style_suffix: stylePromptInput.value.trim(),
         language: currentLang,
+        character: characterInput.value.trim(),
       }),
     });
     if (!res.ok) {
@@ -911,6 +921,7 @@ function currentProject() {
     version:          1,
     saved_at:         new Date().toISOString(),
     concept:          conceptInput.value.trim(),
+    character:        characterInput.value.trim(),
     style_prompt:     stylePromptInput.value.trim(),
     story:            { ...storyData, language: currentLang, pages: editedPages },
     generated_images: Object.fromEntries(
@@ -1018,8 +1029,25 @@ function splitRow(line, delim) {
 }
 
 // ── localStorage state persistence ────────────────────────────────────────
-const LS_KEY   = 'monkeyking_bb_state';
-const LANG_KEY = 'monkeyking_bb_lang';   // preferred language, survives Clear
+const LS_KEY      = 'monkeyking_bb_state';
+const LANG_KEY    = 'monkeyking_bb_lang';   // preferred language, survives Clear
+
+// Debounced patch for shared store from Step 1 inputs
+let _bbSharedTimer = null;
+function debouncedPatchShared(field, value) {
+  clearTimeout(_bbSharedTimer);
+  _bbSharedTimer = setTimeout(() => SharedInputs.patch({ [field]: value }), 400);
+}
+
+conceptInput.addEventListener('input', () => {
+  debouncedPatchShared('story', conceptInput.value);
+});
+characterInput.addEventListener('input', () => {
+  debouncedPatchShared('character', characterInput.value);
+});
+stylePromptInput.addEventListener('input', () => {
+  debouncedPatchShared('style', stylePromptInput.value);
+});
 
 function saveState() {
   // Always persist the chosen language so it survives a reload even before a story exists.
@@ -1029,6 +1057,7 @@ function saveState() {
   const state = {
     version:             1,
     concept:             conceptInput.value.trim(),
+    character:           characterInput.value.trim(),
     style_prompt:        stylePromptInput.value.trim(),
     import_title_en:     importTitleEn.value.trim(),
     import_title_native: importTitleNative.value.trim(),
@@ -1041,20 +1070,6 @@ function saveState() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch { /* quota */ }
 }
 
-async function restoreState() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return;
-    const state = JSON.parse(raw);
-    if (!state.story?.pages) return;
-    importTitleEn.value      = state.import_title_en       ?? '';
-    // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
-    importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
-    importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
-    await restoreProject(state);
-  } catch { /* corrupted */ }
-}
-
 function clearProject() {
   localStorage.removeItem(LS_KEY);
 
@@ -1062,11 +1077,15 @@ function clearProject() {
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
   conceptInput.value       = '';
+  characterInput.value     = '';
   stylePromptInput.value   = '';
   importTitleEn.value      = '';
   importTitleNative.value  = '';
   importTitleReading.value = '';
   tableInput.value         = '';
+
+  // Clear the character field in shared store too
+  SharedInputs.patch({ character: '' });
 
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
@@ -1095,6 +1114,7 @@ function saveProject() {
     version: 1,
     saved_at: new Date().toISOString(),
     concept: conceptInput.value.trim(),
+    character: characterInput.value.trim(),
     style_prompt: stylePromptInput.value.trim(),
     story: { ...storyData, language: currentLang, pages: editedPages },
     generated_images: Object.fromEntries(
@@ -1129,6 +1149,33 @@ loadProjectFile.addEventListener('change', async e => {
   await restoreProject(project);
 });
 
+
+// ── Shared inputs — restore and wire live-sync ─────────────────────────────
+function restoreSharedInputs() {
+  const s = SharedInputs.read();
+  // Set values directly — never dispatch synthetic input events
+  conceptInput.value     = s.story;
+  characterInput.value   = s.character;
+  stylePromptInput.value = s.style;
+
+  // Restore active style preset pill in step 1
+  step1StylePresets.querySelectorAll('.preset').forEach(p => {
+    p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+  });
+}
+
+function wireSharedInputListeners() {
+  // Live cross-tab sync — set .value directly, do NOT trigger input side-effects
+  SharedInputs.onExternalChange(s => {
+    conceptInput.value     = s.story;
+    characterInput.value   = s.character;
+    stylePromptInput.value = s.style;
+    step1StylePresets.querySelectorAll('.preset').forEach(p => {
+      p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+    });
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
@@ -1149,22 +1196,47 @@ loadProjectFile.addEventListener('change', async e => {
       if (!res.ok) throw new Error('Not found');
       const project = await res.json();
       await restoreProject(project);
+      // After gallery load, push the loaded values INTO the shared store
+      // so other tabs see the loaded book — but never overwrite project load FROM shared store
+      SharedInputs.patch({
+        story:     conceptInput.value,
+        style:     stylePromptInput.value,
+        character: characterInput.value,
+      });
     } catch (err) {
       console.warn('Could not load gallery book:', err.message);
+      // Fall through to shared restore
+      restoreSharedInputs();
     }
   } else {
-    await restoreState();
+    // 2. Try to restore full state from LS_KEY (saved story)
+    const hadSavedState = await restoreState();
+    if (hadSavedState) {
+      // restoreProject was called inside restoreState; push loaded values to shared store
+      SharedInputs.patch({
+        story:     conceptInput.value,
+        style:     stylePromptInput.value,
+        character: characterInput.value,
+      });
+    } else {
+      // 3. No saved story — restore from shared store
+      restoreSharedInputs();
+    }
   }
+
+  // 4. Wire live-sync listeners
+  wireSharedInputListeners();
 })();
 
 async function restoreProject(project) {
-  if (!project.story?.pages) return;
+  if (!project.story?.pages) return false;
 
   // Adopt the project's language (default zh for legacy projects without one).
   const projectLang = project.story.language || project.language || DEFAULT_LANG;
   setLanguage(projectLang, { rerender: false, save: false });
 
   conceptInput.value     = project.concept      ?? '';
+  characterInput.value   = project.character    ?? '';
   stylePromptInput.value = project.style_prompt  ?? '';
   storyData = project.story;
 
@@ -1190,4 +1262,20 @@ async function restoreProject(project) {
   }
 
   step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return true;
+}
+
+async function restoreState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    if (!state.story?.pages) return false;
+    importTitleEn.value      = state.import_title_en       ?? '';
+    // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
+    importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
+    importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
+    return await restoreProject(state);
+  } catch { /* corrupted */ }
+  return false;
 }

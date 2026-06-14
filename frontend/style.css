@@ -388,6 +388,101 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .skip-link:focus { top: 0; }
 
+/* ── Builder step card (shared base — used by book_builder, character_generator, figure_maker) ── */
+.builder-step {
+  background: #faf7f2;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+}
+.builder-step.hidden { display: none; }
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+}
+.step-header h2 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* ── Shared Inputs Panel ── */
+.shared-inputs-panel {
+  /* Inherits all .builder-step styles.
+     Teal left border is set inline: style="border-left: 5px solid var(--teal)" */
+}
+
+.shared-tab-hint {
+  margin-top: -.5rem;
+  margin-bottom: .9rem;
+  font-size: .8rem;
+  color: var(--muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ── Sync badge ── */
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: auto;
+  background: rgba(58,125,122,.10);
+  color: var(--teal);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  padding: .28rem .65rem;
+  border-radius: 20px;
+  cursor: default;
+  white-space: nowrap;
+}
+.sync-badge:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.sync-icon {
+  flex-shrink: 0;
+  /* stroke color inherited from .sync-badge color: var(--teal) */
+}
+
+/* ── Per-tab field emphasis (primary highlight) ── */
+.shared-field-primary label {
+  color: var(--ink);
+  font-weight: 800;
+}
+.shared-field-primary textarea {
+  border-left-color: var(--teal);
+  border-left-width: 3px;
+}
+
+/* ── Book Builder inline shared inputs (no nested card) ── */
+.shared-inputs-inline {
+  display: flex;
+  flex-direction: column;
+}
+.sync-badge-row {
+  display: flex;
+  margin-bottom: .5rem;
+}
+/* When sync-badge is in badge-row (BB), it should not push with margin-left:auto */
+.sync-badge-row .sync-badge {
+  margin-left: 0;
+}
+
+/* ── Mobile reflow for shared components ── */
+@media (max-width: 700px) {
+  .sync-badge {
+    font-size: .68rem;
+    padding: .22rem .5rem;
+  }
+}
+
 /* ── Inline feedback messages (shared) ── */
 .cg-error {
   margin-top: .6rem;

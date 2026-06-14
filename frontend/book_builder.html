@@ -60,27 +60,61 @@
         </div>
       </div>
 
-      <div class="concept-row" style="margin-top:.75rem">
-        <textarea id="conceptInput" rows="4"
-          placeholder="Describe your storybook idea… e.g. 'Sun Wukong learns to share with the animals of the forest'"></textarea>
-      </div>
+      <!-- SHARED INPUTS (inline — no nested card, just spacing wrapper) -->
+      <div class="shared-inputs-inline" id="sharedInputsPanel" style="margin-top: .75rem">
 
-      <div class="control-group" style="margin-top:.75rem">
-        <label>Style Prompt <span class="hint">(applied to all image generation)</span></label>
-        <textarea id="stylePromptInput" rows="3"
-          placeholder="Describe the visual style for all illustrations…"></textarea>
-        <div class="presets" id="stylePresets" style="margin-top:.4rem">
-          <button class="preset"
-            data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
-          <button class="preset"
-            data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
-          <button class="preset"
-            data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
-          <button class="preset"
-            data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
-          <button class="preset" data-suffix="">Clear</button>
+        <p class="hint shared-tab-hint" id="sharedTabHint">
+          Book Builder mainly uses Story and Character — Style applies to all illustrations.
+        </p>
+
+        <div class="sync-badge-row">
+          <span class="sync-badge" tabindex="0"
+                title="Editing here updates Character Generator, Book Builder, and Figure Maker"
+                aria-label="These fields sync across all three tabs">
+            <svg class="sync-icon" aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            Shared across tabs
+          </span>
         </div>
+
+        <!-- STORY PROMPT — PRIMARY emphasis (existing conceptInput) -->
+        <div class="control-group shared-field-primary" id="sharedStoryGroup" style="margin-top: .6rem">
+          <label for="conceptInput">Story Prompt</label>
+          <textarea id="conceptInput" rows="4"
+            placeholder="Sun Wukong learns to share with the forest animals — a tale about kindness…"
+            aria-describedby="sharedStoryHint"></textarea>
+          <p class="hint" id="sharedStoryHint">The concept, adventure, or scenario your storybook is about.</p>
+        </div>
+
+        <!-- CHARACTER DESCRIPTION — PRIMARY emphasis (new field) -->
+        <div class="control-group shared-field-primary" id="sharedCharacterGroup" style="margin-top: .9rem">
+          <label for="characterInput">Character Description</label>
+          <textarea id="characterInput" rows="3"
+            placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
+            aria-describedby="sharedCharacterHint"></textarea>
+          <p class="hint" id="sharedCharacterHint">Who is the main character? Appearance, personality, key props. Used to keep art consistent across all pages.</p>
+        </div>
+
+        <!-- STYLE PROMPT — secondary (existing stylePromptInput) -->
+        <div class="control-group" id="sharedStyleGroup" style="margin-top: .9rem">
+          <label for="stylePromptInput">Style Prompt <span class="hint">(applied to all illustrations)</span></label>
+          <textarea id="stylePromptInput" rows="2"
+            placeholder="Describe the visual style for all illustrations…"
+            aria-describedby="sharedStyleHint"></textarea>
+          <p class="hint" id="sharedStyleHint">The art style used for every page image.</p>
+          <div class="presets shared-style-presets" id="stylePresets" role="group" aria-label="Style presets" style="margin-top:.4rem">
+            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+            <button class="preset" data-suffix="">Clear</button>
+          </div>
+        </div>
+
       </div>
+      <!-- END SHARED INPUTS (inline) -->
 
       <div class="decompose-btn-row">
         <button id="decomposeBtn" class="generate-btn">
@@ -156,7 +190,7 @@
         <div class="control-group">
           <label>Style Prompt</label>
           <textarea id="genStylePrompt" rows="2" placeholder="Visual style applied to every image…"></textarea>
-          <div class="presets" id="stylePresets" style="margin-top:.4rem">
+          <div class="presets" id="genStylePresets" style="margin-top:.4rem">
             <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
             <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
             <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
@@ -320,6 +354,7 @@
 
   </main>
 
+  <script src="shared_inputs.js"></script>
   <script src="storybook_print.js"></script>
   <script src="book_builder.js"></script>
 </body>

@@ -3,11 +3,17 @@
 
 const API = window.location.origin;
 
+// ── Shared input field map for this page ────────────────────────────────────
+// character = cgDescInput (existing), style = cgStyleInput (existing),
+// story     = cgStoryInput (new)
+const CG_FIELD_MAP = { character: 'cgDescInput', style: 'cgStyleInput', story: 'cgStoryInput' };
+
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
 
 const cgDescInput     = document.getElementById('cgDescInput');
+const cgStoryInput    = document.getElementById('cgStoryInput');
 const cgStyleInput    = document.getElementById('cgStyleInput');
 const cgStylePresets  = document.getElementById('cgStylePresets');
 const cgModelSelect   = document.getElementById('cgModelSelect');
@@ -92,6 +98,9 @@ cgStylePresets.addEventListener('click', e => {
     btn.classList.add('active');
     cgStyleInput.value = suffix;
   }
+  // Patch shared store for style
+  SharedInputs.patch({ style: cgStyleInput.value });
+  saveCgDraft();
 });
 
 // ── Aspect ratio pills (single-select) ───────────────────────────────────────
@@ -100,12 +109,98 @@ cgAspectPresets.addEventListener('click', e => {
   if (!btn) return;
   cgAspectPresets.querySelectorAll('.ar-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  saveCgDraft();
 });
 
 function getSelectedAR() {
   const active = cgAspectPresets.querySelector('.ar-btn.active');
   return active ? active.dataset.ar : '3:4';
 }
+
+// ── Draft persistence — keep only non-shared fields (model/ar) ───────────────
+const CG_DRAFT_KEY = 'monkeyking_cg_draft';
+
+function saveCgDraft() {
+  try {
+    const draft = {
+      model:  cgModelSelect.value,
+      ar:     getSelectedAR(),
+      // prompt and style are NOT saved here — they live in SharedInputs
+    };
+    localStorage.setItem(CG_DRAFT_KEY, JSON.stringify(draft));
+  } catch { /* quota / private-mode */ }
+}
+
+function restoreCgDraft() {
+  try {
+    const raw = localStorage.getItem(CG_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    // Only restore model if the option still exists after loadModels() rebuilt the select
+    if (draft.model) {
+      cgModelSelect.value = draft.model;
+      if (cgModelSelect.value !== draft.model) cgModelSelect.selectedIndex = 0;
+    }
+    if (draft.ar) {
+      cgAspectPresets.querySelectorAll('.ar-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.ar === draft.ar);
+      });
+    }
+  } catch { /* corrupted draft */ }
+}
+
+// ── Shared inputs — restore from store, wire live-sync ───────────────────────
+function restoreSharedInputs() {
+  const s = SharedInputs.read();
+  // Set values directly — never dispatch synthetic input events
+  cgDescInput.value  = s.character;
+  cgStoryInput.value = s.story;
+  cgStyleInput.value = s.style;
+
+  // Restore active style preset pill
+  cgStylePresets.querySelectorAll('.preset').forEach(p => {
+    p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+  });
+}
+
+function wireSharedInputListeners() {
+  let _charTimer = null, _storyTimer = null, _styleTimer = null;
+
+  cgDescInput.addEventListener('input', () => {
+    clearTimeout(_charTimer);
+    _charTimer = setTimeout(() => SharedInputs.patch({ character: cgDescInput.value }), 300);
+  });
+
+  cgStoryInput.addEventListener('input', () => {
+    clearTimeout(_storyTimer);
+    _storyTimer = setTimeout(() => SharedInputs.patch({ story: cgStoryInput.value }), 300);
+  });
+
+  cgStyleInput.addEventListener('input', () => {
+    clearTimeout(_styleTimer);
+    _styleTimer = setTimeout(() => SharedInputs.patch({ style: cgStyleInput.value }), 300);
+  });
+
+  // Live cross-tab sync
+  SharedInputs.onExternalChange(s => {
+    cgDescInput.value  = s.character;
+    cgStoryInput.value = s.story;
+    cgStyleInput.value = s.style;
+    // Re-sync active style preset pill
+    cgStylePresets.querySelectorAll('.preset').forEach(p => {
+      p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
+    });
+  });
+}
+
+// Debounced save for model/ar changes
+let _cgDraftTimer = null;
+function debouncedSaveCgDraft() {
+  clearTimeout(_cgDraftTimer);
+  _cgDraftTimer = setTimeout(saveCgDraft, 300);
+}
+
+cgModelSelect.addEventListener('change', saveCgDraft);
 
 // ── State helpers ───────────────────────────────────────────────────────────
 function showEmpty() {
@@ -229,11 +324,12 @@ cgClearStripBtn.addEventListener('click', () => {
 
 // ── Generate ─────────────────────────────────────────────────────────────────
 cgGenerateBtn.addEventListener('click', async () => {
-  const description = cgDescInput.value.trim();
-  const style       = cgStyleInput.value.trim();
+  const character = cgDescInput.value.trim();
+  const story     = cgStoryInput.value.trim();
+  const style     = cgStyleInput.value.trim();
 
-  // Validate
-  if (!description) {
+  // Validate — character is required
+  if (!character) {
     shakeField(cgDescInput);
     return;
   }
@@ -242,8 +338,11 @@ cgGenerateBtn.addEventListener('click', async () => {
   setGenerating(true);
   showLoading();
 
+  // Smart combination: weave story into prompt if present
+  const prompt = story ? `${character}, in a scene: ${story}` : character;
+
   const payload = {
-    prompt:               description,
+    prompt,
     style_prompt:         style,
     provider:             'gemini',
     gemini_model:         cgModelSelect.value,
@@ -264,8 +363,8 @@ cgGenerateBtn.addEventListener('click', async () => {
     const data = await res.json();
     const filename = data.filename;
 
-    showImage(filename, description);
-    addThumbToStrip(filename, description);
+    showImage(filename, character);
+    addThumbToStrip(filename, character);
 
     // Fire-and-forget: save to gallery (ignore failures)
     fetch(`${API}/gallery/image`, {
@@ -273,7 +372,7 @@ cgGenerateBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         filename,
-        prompt:       description,
+        prompt:       character,
         style_prompt: style,
         model:        cgModelSelect.value,
       }),
@@ -308,6 +407,16 @@ cgUseAsCoverBtn.addEventListener('click', () => {
 (async () => {
   await checkHealth();
   await loadModels();
+
+  // Restore CG-specific settings (model/ar) AFTER loadModels() so the rebuilt
+  // select isn't clobbered
+  restoreCgDraft();
+
+  // Restore shared inputs (character/story/style) from SharedInputs store
+  restoreSharedInputs();
+
+  // 4. Wire live-sync listeners
+  wireSharedInputListeners();
 })();
 
 // Periodic health ping every 30 s

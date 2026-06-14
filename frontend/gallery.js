@@ -1,7 +1,17 @@
 /* gallery.js — ES module */
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+// three.js is loaded lazily (only when the 3D viewer modal opens) so that the
+// gallery listings still work even if the three.js CDN is unreachable.
+let _three = null;
+async function loadThree() {
+  if (_three) return _three;
+  const [THREE, gltf, orbit] = await Promise.all([
+    import('three'),
+    import('three/addons/loaders/GLTFLoader.js'),
+    import('three/addons/controls/OrbitControls.js'),
+  ]);
+  _three = { THREE, GLTFLoader: gltf.GLTFLoader, OrbitControls: orbit.OrbitControls };
+  return _three;
+}
 
 const API = window.location.origin;
 
@@ -420,10 +430,26 @@ function teardownModalViewer() {
   while (modelViewerCanvas.firstChild) modelViewerCanvas.removeChild(modelViewerCanvas.firstChild);
 }
 
-function mountModalViewer(glbUrl) {
+async function mountModalViewer(glbUrl) {
   teardownModalViewer();
 
   const container = modelViewerCanvas;
+
+  // Load three.js on demand. If the CDN is unreachable, fall back gracefully —
+  // the user can still download the GLB from the modal footer.
+  let THREE, GLTFLoader, OrbitControls;
+  container.textContent = 'Loading 3D viewer…';
+  try {
+    ({ THREE, GLTFLoader, OrbitControls } = await loadThree());
+  } catch (err) {
+    console.error('Failed to load three.js', err);
+    container.textContent = 'Could not load the 3D viewer (are you offline?). You can still download the GLB below.';
+    return;
+  }
+  // The modal may have been closed while three.js was loading.
+  if (modelViewerModal.classList.contains('hidden')) return;
+  container.textContent = '';
+
   const w = container.clientWidth  || 720;
   const h = container.clientHeight || 340;
 
