@@ -344,11 +344,29 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
+  gap: .45rem;
   min-height: 36px;
 }
 .settings-btn:hover { background: rgba(255,255,255,.20); color: #ffffff; }
 .settings-btn--muted { border-color: rgba(229,72,77,.40); color: rgba(229,72,77,.90); }
 .settings-btn--muted:hover { background: rgba(229,72,77,.15); color: #e5484d; border-color: rgba(229,72,77,.70); }
+/* Warm-accent modifier — for positive secondary actions (e.g. "Create Figure").
+   Uses the existing --mustard / #ff6b35 accent colour. */
+.settings-btn--accent {
+  background: rgba(255,107,53,.12);
+  border-color: rgba(255,107,53,.40);
+  color: rgba(255,107,53,.90);
+}
+.settings-btn--accent:hover:not(:disabled) {
+  background: rgba(255,107,53,.28);
+  border-color: rgba(255,107,53,.75);
+  color: #ff6b35;
+}
+.settings-btn--accent:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: 2px;
+}
+.settings-btn--accent:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ── Spinner ── */
 .spinner {

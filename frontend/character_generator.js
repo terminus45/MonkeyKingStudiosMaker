@@ -25,9 +25,12 @@ const cgImageFrame    = document.getElementById('cgImageFrame');
 const cgEmptyState    = document.getElementById('cgEmptyState');
 const cgLoadingState  = document.getElementById('cgLoadingState');
 const cgPortraitImg   = document.getElementById('cgPortraitImg');
-const cgActionRow     = document.getElementById('cgActionRow');
-const cgDownloadBtn   = document.getElementById('cgDownloadBtn');
-const cgUseAsCoverBtn = document.getElementById('cgUseAsCoverBtn');
+const cgActionRow          = document.getElementById('cgActionRow');
+const cgDownloadBtn        = document.getElementById('cgDownloadBtn');
+const cgUseAsCoverBtn      = document.getElementById('cgUseAsCoverBtn');
+const cgCreateFigureBtn    = document.getElementById('cgCreateFigureBtn');
+const cgCreateFigureLabel  = document.getElementById('cgCreateFigureLabel');
+const cgCreateFigureSpinner = document.getElementById('cgCreateFigureSpinner');
 
 const cgStrip         = document.getElementById('cgStrip');
 const cgStripScroll   = document.getElementById('cgStripScroll');
@@ -115,6 +118,10 @@ function showImage(filename, description) {
   // Cover button data
   cgUseAsCoverBtn.dataset.filename = filename;
   currentFilename = filename;
+
+  // Enable the Create Figure button now that a portrait is ready
+  cgCreateFigureBtn.disabled = false;
+  cgCreateFigureBtn.removeAttribute('aria-disabled');
 }
 
 function setGenerating(isGenerating) {
@@ -290,6 +297,82 @@ cgUseAsCoverBtn.addEventListener('click', () => {
     cgUseAsCoverBtn.textContent = origText;
     cgUseAsCoverBtn.disabled = false;
   }, 2000);
+});
+
+// ── Create Figure ─────────────────────────────────────────────────────────────
+// Starts a Meshy image-to-3D job from the current portrait, writes the job to
+// localStorage in the exact shape expected by figure_maker.js saveFmJob(), and
+// navigates to Figure Maker where resumeJobIfAny() takes over.
+//
+// COUPLING NOTE: The localStorage key and payload shape below must stay in sync
+// with figure_maker.js:
+//   FM_JOB_KEY = 'monkeyking_fm_job'
+//   saveFmJob writes: { job_id: string, started_at: number }
+cgCreateFigureBtn.addEventListener('click', async () => {
+  if (!currentFilename) return; // guard: button should be disabled if no image
+
+  hideError();
+
+  // Enter in-flight state
+  cgCreateFigureBtn.disabled = true;
+  cgCreateFigureBtn.setAttribute('aria-disabled', 'true');
+  cgCreateFigureLabel.classList.add('hidden');
+  cgCreateFigureSpinner.classList.remove('hidden');
+
+  function restoreBtn() {
+    cgCreateFigureBtn.disabled = false;
+    cgCreateFigureBtn.removeAttribute('aria-disabled');
+    cgCreateFigureLabel.classList.remove('hidden');
+    cgCreateFigureSpinner.classList.add('hidden');
+  }
+
+  try {
+    const res = await fetch(`${API}/figure/generate-from-image`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        filename: currentFilename,
+        prompt:   cgDescInput.value.trim(),
+        style:    cgStyleInput.value.trim(),
+        story:    cgStoryInput.value.trim(),
+      }),
+    });
+
+    if (!res.ok) {
+      let msg;
+      try {
+        const body = await res.json();
+        if (res.status === 503) {
+          msg = 'Meshy key not set — ask a grown-up to add it in Settings (⚙).';
+        } else if (res.status === 404) {
+          msg = "Couldn't find that portrait on the server. Try regenerating your character.";
+        } else {
+          msg = body.detail || `Something went wrong (error ${res.status}).`;
+        }
+      } catch {
+        msg = `Something went wrong (error ${res.status}).`;
+      }
+      restoreBtn();
+      showError(msg);
+      return;
+    }
+
+    const data = await res.json();
+
+    // Write job to localStorage in the exact shape figure_maker.js expects.
+    // COUPLING: must match FM_JOB_KEY / saveFmJob shape in figure_maker.js.
+    localStorage.setItem('monkeyking_fm_job', JSON.stringify({
+      job_id:     data.job_id,
+      started_at: Date.now(),
+    }));
+
+    // Navigate immediately — figure_maker.js resumeJobIfAny() will pick up the job.
+    window.location.href = 'figure_maker.html';
+
+  } catch {
+    restoreBtn();
+    showError('Network error — check your connection and try again.');
+  }
 });
 
 // ── Restore generated images from a previous visit ────────────────────────────

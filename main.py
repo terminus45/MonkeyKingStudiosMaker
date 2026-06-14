@@ -980,14 +980,17 @@ _MAX_POLL_PER_STAGE = 150  # ~10 min per stage (150 × 4 s = 600 s)
 
 
 def _poll_until_done(task_id: str, job_id: str, meshy_key: str,
-                     progress_start: int, progress_end: int) -> dict:
+                     progress_start: int, progress_end: int,
+                     getter=meshy_generator.get_task) -> dict:
     """Poll a Meshy task until SUCCEEDED. Map progress into [progress_start, progress_end].
-    Raises RuntimeError on FAILED/CANCELED or timeout."""
+    Raises RuntimeError on FAILED/CANCELED or timeout.
+    getter is the function used to fetch task state — defaults to get_task (text-to-3D).
+    Pass meshy_generator.get_image_to_3d_task for image-to-3D jobs."""
     import time
 
     for attempt in range(_MAX_POLL_PER_STAGE):
         time.sleep(_POLL_INTERVAL)
-        task = meshy_generator.get_task(task_id, api_key=meshy_key)
+        task = getter(task_id, api_key=meshy_key)
         status = task.get("status", "")
         raw_pct = task.get("progress", 0)  # 0–100 from Meshy
 
@@ -1107,6 +1110,106 @@ class FigureGenerateRequest(BaseModel):
     meshy_key: Optional[str] = None
 
 
+class FigureFromImageRequest(BaseModel):
+    filename: str                          # portrait filename from OUTPUT_DIR
+    prompt: Optional[str] = ""            # character description — used only for print report
+    style: Optional[str] = ""
+    story: Optional[str] = ""
+    anthropic_key: Optional[str] = None
+    meshy_key: Optional[str] = None
+
+
+# ── Image-to-3D figure worker ─────────────────────────────────────────────────
+
+def _run_figure_image_job(job_id: str, filename: str, prompt: str,
+                          anthropic_key: Optional[str], meshy_key: str) -> None:
+    """Background worker: portrait image → image-to-3D GLB → report → gallery."""
+    from PIL import Image as PilImage
+
+    try:
+        # Stage: prompting (brief — prepare image)
+        _job_update(job_id, {"stage": "prompting", "progress": 2})
+
+        # Read and re-encode the portrait with Pillow (resize, JPEG, base64).
+        # This keeps the upload payload small and strips any EXIF / alpha channel.
+        img_path = os.path.join(OUTPUT_DIR, filename)
+        with PilImage.open(img_path) as img:
+            img = img.convert("RGB")
+            img.thumbnail((1024, 1024))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=88)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        data_uri = "data:image/jpeg;base64," + b64
+
+        # Stage: preview (Meshy image-to-3D — single task, not preview→refine)
+        _job_update(job_id, {"stage": "preview", "progress": 10})
+        task_id = meshy_generator.create_image_to_3d_task(data_uri, api_key=meshy_key)
+        task = _poll_until_done(
+            task_id, job_id, meshy_key,
+            progress_start=10, progress_end=90,
+            getter=meshy_generator.get_image_to_3d_task,
+        )
+
+        # Extract GLB URL
+        glb_url = (task.get("model_urls") or {}).get("glb")
+        if not glb_url:
+            raise RuntimeError(
+                "Meshy image-to-3D succeeded but returned no GLB URL. "
+                f"model_urls: {task.get('model_urls')}"
+            )
+
+        # Stage: downloading
+        _job_update(job_id, {"stage": "downloading", "progress": 92})
+        glb_filename = f"{job_id}.glb"
+        dest_path = os.path.join(FIGURES_DIR, glb_filename)
+        os.makedirs(FIGURES_DIR, exist_ok=True)
+        meshy_generator.download_model(glb_url, dest_path)
+        _job_update(job_id, {"glb_filename": glb_filename, "progress": 94})
+
+        # Stage: analyzing (Claude print report — degrades if no key)
+        _job_update(job_id, {"stage": "analyzing", "progress": 96})
+        report_data = _make_print_report(prompt or "a 3D character figure", anthropic_key)
+        _job_update(job_id, {
+            "report": report_data["report"],
+            "filament": report_data["filament"],
+            "progress": 99,
+        })
+
+        # Auto-save to gallery — best-effort; failure is non-fatal
+        thumbnail_url = task.get("thumbnail_url")
+        thumbnail_filename = None
+        try:
+            if thumbnail_url:
+                thumbnail_filename = f"{uuid.uuid4().hex}.png"
+                thumb_dest = os.path.join(OUTPUT_DIR, thumbnail_filename)
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                meshy_generator.download_model(thumbnail_url, thumb_dest)
+        except Exception:
+            thumbnail_filename = None
+
+        try:
+            model_record = {
+                "id": uuid.uuid4().hex[:8],
+                "glb_filename": glb_filename,
+                "prompt": prompt or "(from image)",
+                "enhanced_prompt": None,       # not applicable for image-to-3D
+                "source": "image",
+                "report": report_data["report"],
+                "filament": report_data["filament"],
+                "thumbnail_filename": thumbnail_filename,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            _manifest_append(_MODELS_MANIFEST, model_record)
+        except Exception:
+            pass  # manifest failure is non-fatal
+
+        # Done
+        _job_update(job_id, {"stage": "done", "progress": 100})
+
+    except Exception as exc:
+        _job_update(job_id, {"stage": "error", "error": str(exc)})
+
+
 # ── Figure routes ─────────────────────────────────────────────────────────────
 
 @app.post("/figure/generate")
@@ -1139,6 +1242,40 @@ def figure_generate(req: FigureGenerateRequest):
         daemon=True,
     )
     thread.start()
+
+    return {"job_id": job_id}
+
+
+@app.post("/figure/generate-from-image")
+def figure_generate_from_image(req: FigureFromImageRequest):
+    """Start an image-to-3D figure job from an existing portrait. Returns {job_id}."""
+    # Validate filename — same guard as get_image
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+
+    img_path = os.path.join(OUTPUT_DIR, req.filename)
+    if not os.path.exists(img_path):
+        raise HTTPException(status_code=404, detail="Couldn't find that portrait.")
+
+    resolved_meshy_key = req.meshy_key or settings_store.get_key("MESHY_API_KEY")
+    if not resolved_meshy_key:
+        raise HTTPException(
+            status_code=503,
+            detail="MESHY_API_KEY not set on server.",
+        )
+
+    # Anthropic key is optional — print report degrades gracefully if absent
+    resolved_anthropic_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+
+    job_id = uuid.uuid4().hex
+    _job_create(job_id)
+
+    threading.Thread(
+        target=_run_figure_image_job,
+        args=(job_id, req.filename, (req.prompt or "").strip(),
+              resolved_anthropic_key, resolved_meshy_key),
+        daemon=True,
+    ).start()
 
     return {"job_id": job_id}
 

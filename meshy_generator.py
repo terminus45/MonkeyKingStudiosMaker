@@ -116,24 +116,75 @@ def create_refine_task(preview_task_id: str, *, api_key: Optional[str] = None) -
     return task_id
 
 
-def get_task(task_id: str, *, api_key: Optional[str] = None) -> dict:
-    """Fetch the current state of a task. Returns the full task dict."""
+def _get_task(task_id: str, endpoint: str, *, api_key: Optional[str] = None) -> dict:
+    """Shared GET helper: fetches f"{MESHY_BASE}/openapi/{endpoint}/{task_id}"."""
     try:
         import httpx
     except ImportError:
         raise RuntimeError("httpx package is not installed. Run: pip install httpx")
 
     headers = _client_headers(api_key)
+    operation = f"get_task({endpoint})"
     try:
         resp = httpx.get(
-            f"{MESHY_BASE}/openapi/v2/text-to-3d/{task_id}",
+            f"{MESHY_BASE}/openapi/{endpoint}/{task_id}",
             headers=headers,
             timeout=30,
         )
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"[get_task] HTTP error: {exc}") from exc
+        raise RuntimeError(f"[{operation}] HTTP error: {exc}") from exc
 
-    return _check_response(resp, "get_task")
+    return _check_response(resp, operation)
+
+
+def get_task(task_id: str, *, api_key: Optional[str] = None) -> dict:
+    """Fetch the current state of a text-to-3D task. Returns the full task dict."""
+    return _get_task(task_id, "v2/text-to-3d", api_key=api_key)
+
+
+def get_image_to_3d_task(task_id: str, *, api_key: Optional[str] = None) -> dict:
+    """Fetch the current state of an image-to-3D task. Returns the full task dict."""
+    return _get_task(task_id, "v1/image-to-3d", api_key=api_key)
+
+
+def create_image_to_3d_task(image_data_uri: str, *, api_key: Optional[str] = None,
+                             ai_model: str = "meshy-5",
+                             should_texture: bool = True,
+                             should_remesh: bool = True) -> str:
+    """Submit an image-to-3D task. Returns the task_id string.
+
+    image_data_uri should be a data URI, e.g. "data:image/jpeg;base64,<b64>".
+    Uses a larger timeout (60 s) because the body is a multi-KB base64 payload.
+    """
+    try:
+        import httpx
+    except ImportError:
+        raise RuntimeError("httpx package is not installed. Run: pip install httpx")
+
+    headers = _client_headers(api_key)
+    body = {
+        "image_url": image_data_uri,
+        "ai_model": ai_model,
+        "should_texture": should_texture,
+        "should_remesh": should_remesh,
+    }
+    try:
+        resp = httpx.post(
+            f"{MESHY_BASE}/openapi/v1/image-to-3d",
+            headers=headers,
+            json=body,
+            timeout=60,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"[create_image_to_3d_task] HTTP error: {exc}") from exc
+
+    data = _check_response(resp, "create_image_to_3d_task")
+    task_id = data.get("result")
+    if not task_id:
+        raise RuntimeError(
+            f"[create_image_to_3d_task] Unexpected response (no 'result' key): {data}"
+        )
+    return task_id
 
 
 def download_model(url: str, dest_path: str) -> None:
