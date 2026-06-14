@@ -581,7 +581,7 @@ async function generateSinglePage(pageNum) {
 
   const genBody = {
     prompt:       current.image_prompt,
-    style_prompt: genStylePrompt.value.trim(),
+    style_prompt: stylePromptInput.value.trim(),
     provider,
     width:        canvasW,
     height:       canvasH,
@@ -717,7 +717,7 @@ queueBtn.addEventListener('click', async () => {
     try {
       const genBody = {
         prompt:       current.image_prompt,
-        style_prompt: genStylePrompt.value.trim(),
+        style_prompt: stylePromptInput.value.trim(),
         provider,
         width:        canvasW,
         height:       canvasH,
@@ -1067,22 +1067,25 @@ function saveState() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch { /* quota */ }
 }
 
-function clearProject() {
+function clearProject({ keepInputs = false } = {}) {
   localStorage.removeItem(LS_KEY);
 
   storyData = null;
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
-  conceptInput.value       = '';
-  characterInput.value     = '';
-  stylePromptInput.value   = '';
+  // keepInputs leaves the shared Character/Style/Story fields (and the shared
+  // store) untouched — used when starting a fresh book from synced inputs.
+  if (!keepInputs) {
+    conceptInput.value     = '';
+    characterInput.value   = '';
+    stylePromptInput.value = '';
+    // Clear the character field in shared store too
+    SharedInputs.patch({ character: '' });
+  }
   importTitleEn.value      = '';
   importTitleNative.value  = '';
   importTitleReading.value = '';
   tableInput.value         = '';
-
-  // Clear the character field in shared store too
-  SharedInputs.patch({ character: '' });
 
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
@@ -1206,10 +1209,34 @@ function wireSharedInputListeners() {
       restoreSharedInputs();
     }
   } else {
-    // 2. Try to restore full state from LS_KEY (saved story)
-    const hadSavedState = await restoreState();
-    if (hadSavedState) {
-      // restoreProject was called inside restoreState; push loaded values to shared store
+    // 2. Reconcile the saved book (LS_KEY) with the synced cross-tab inputs.
+    const savedState = readSavedState();
+    const shared     = SharedInputs.read();
+
+    if (savedState && sharedConflictsWithSaved(savedState, shared)) {
+      // The saved book and the inputs edited in another tab disagree. Ask the
+      // user which to keep instead of silently clobbering one with the other.
+      const keepPrevious = confirm(
+        'Your saved book here is different from the Character / Style / Story ' +
+        'you edited in another tab.\n\n' +
+        'OK — Continue your saved book (keep its text).\n' +
+        'Cancel — Start a new book using the inputs from the other tab.'
+      );
+      if (keepPrevious) {
+        await restoreState(savedState);
+        SharedInputs.patch({
+          story:     conceptInput.value,
+          style:     stylePromptInput.value,
+          character: characterInput.value,
+        });
+      } else {
+        // Start fresh: drop the saved book but keep the synced inputs intact.
+        clearProject({ keepInputs: true });
+        restoreSharedInputs();
+      }
+    } else if (savedState) {
+      // No conflict — restore the saved book and mirror it to the shared store.
+      await restoreState(savedState);
       SharedInputs.patch({
         story:     conceptInput.value,
         style:     stylePromptInput.value,
@@ -1262,17 +1289,39 @@ async function restoreProject(project) {
   return true;
 }
 
-async function restoreState() {
+// Parse the saved Book Builder state (LS_KEY) without applying it. Returns the
+// state object, or null if absent/corrupted/lacking a story.
+function readSavedState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return false;
+    if (!raw) return null;
     const state = JSON.parse(raw);
-    if (!state.story?.pages) return false;
-    importTitleEn.value      = state.import_title_en       ?? '';
-    // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
-    importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
-    importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
-    return await restoreProject(state);
-  } catch { /* corrupted */ }
-  return false;
+    if (!state.story?.pages) return null;
+    return state;
+  } catch { return null; }
+}
+
+async function restoreState(state) {
+  // state is optional — read it from storage when not supplied.
+  if (!state) state = readSavedState();
+  if (!state) return false;
+  importTitleEn.value      = state.import_title_en       ?? '';
+  // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
+  importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
+  importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
+  return await restoreProject(state);
+}
+
+// True when the synced shared inputs (edited in another tab) hold content that
+// differs from the saved book — i.e. restoring the book would silently discard
+// the user's newer cross-tab edits.
+function sharedConflictsWithSaved(state, shared) {
+  const norm = v => (v || '').trim();
+  const sStory = norm(shared.story), sChar = norm(shared.character), sStyle = norm(shared.style);
+  const sharedHasContent = sStory || sChar || sStyle;
+  const differs =
+    norm(state.concept)      !== sStory ||
+    norm(state.character)    !== sChar  ||
+    norm(state.style_prompt) !== sStyle;
+  return Boolean(sharedHasContent && differs);
 }

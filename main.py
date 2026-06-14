@@ -562,7 +562,10 @@ def decompose(req: DecomposeRequest):
     return data
 
 
-@app.get("/image/{filename}")
+# Accept HEAD as well as GET — the Book Builder restore flow probes each saved
+# page image with a HEAD request before displaying it. (Starlette no longer
+# auto-adds HEAD to GET routes, so it must be declared explicitly.)
+@app.api_route("/image/{filename}", methods=["GET", "HEAD"])
 def get_image(filename: str):
     if not re.fullmatch(r"[a-f0-9]{32}\.png", filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -735,6 +738,7 @@ async def save_to_gallery(request: Request):
 class GalleryImageRequest(BaseModel):
     filename: str
     prompt: Optional[str] = None
+    story: Optional[str] = None
     style_prompt: Optional[str] = None
     model: Optional[str] = None
 
@@ -751,6 +755,7 @@ def gallery_image_add(req: GalleryImageRequest):
         "id": uuid.uuid4().hex[:8],
         "filename": req.filename,
         "prompt": req.prompt,
+        "story": req.story,
         "style_prompt": req.style_prompt,
         "model": req.model,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -893,7 +898,8 @@ def _enhance_figure_prompt(child_prompt: str, api_key: str,
                     "type": "string",
                     "description": (
                         "The enhanced Meshy prompt. Must start with the child's words "
-                        "and end with 'under 6 inches / 152 mm tall, compact and chunky proportions'."
+                        "and end with 'under 6 inches / 152 mm tall, compact and chunky proportions'. "
+                        "Keep it concise — under 700 characters total."
                     ),
                 }
             },

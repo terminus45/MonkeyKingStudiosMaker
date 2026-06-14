@@ -104,6 +104,16 @@ header {
   white-space: nowrap;
   flex-shrink: 0;
 }
+/* Show only the status dot — keep the label for screen readers, hide it visually */
+#statusLabel {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .status-dot {
   width: 10px; height: 10px;
   border-radius: 50%;

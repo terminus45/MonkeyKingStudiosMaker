@@ -6,6 +6,21 @@ from typing import Optional
 
 MESHY_BASE = "https://api.meshy.ai"
 
+# Meshy rejects prompts longer than 800 characters (HTTP 400).
+MAX_PROMPT_CHARS = 800
+
+
+def _cap_prompt(prompt: str) -> str:
+    """Trim a prompt to Meshy's 800-char limit at a word boundary."""
+    p = (prompt or "").strip()
+    if len(p) <= MAX_PROMPT_CHARS:
+        return p
+    cut = p[:MAX_PROMPT_CHARS]
+    space = cut.rfind(" ")
+    if space > 0:
+        cut = cut[:space]
+    return cut.strip()
+
 
 def _client_headers(api_key: Optional[str] = None) -> dict:
     key = api_key or os.environ.get("MESHY_API_KEY", "")
@@ -50,7 +65,7 @@ def create_preview_task(prompt: str, *, api_key: Optional[str] = None) -> str:
     headers = _client_headers(api_key)
     body = {
         "mode": "preview",
-        "prompt": prompt,
+        "prompt": _cap_prompt(prompt),
         "art_style": "realistic",
         "should_remesh": True,
     }

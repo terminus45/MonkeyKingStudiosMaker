@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 
 const API = window.location.origin;
 
@@ -71,10 +72,10 @@ const STAGE_LABELS = {
 };
 
 // ── State ───────────────────────────────────────────────────────────────────
-let _cancelled   = false;
-let _polling     = false;
-let _glbUrl      = null;
-let _stlUrl      = null;
+let _cancelled    = false;
+let _currentJobId = null;   // job_id whose poll loop is allowed to update the UI (single-flight guard)
+let _glbUrl       = null;
+let _stlObjectUrl = null;   // blob URL for the client-side STL export (revoked on teardown)
 
 // three.js refs
 let fmRenderer    = null;
@@ -191,6 +192,25 @@ function restoreFmDraft() {
   } catch { /* corrupted draft */ }
 }
 
+// ── In-flight job persistence — lets a running job survive navigation ──────────
+const FM_JOB_KEY        = 'monkeyking_fm_job';
+const FM_JOB_MAX_AGE_MS = 35 * 60 * 1000;   // don't resume a job older than ~35 min
+
+function saveFmJob(jobId) {
+  try {
+    localStorage.setItem(FM_JOB_KEY, JSON.stringify({ job_id: jobId, started_at: Date.now() }));
+  } catch { /* quota / private-mode */ }
+}
+
+function readFmJob() {
+  try { return JSON.parse(localStorage.getItem(FM_JOB_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function clearFmJob() {
+  try { localStorage.removeItem(FM_JOB_KEY); } catch { /* private-mode */ }
+}
+
 // ── Shared inputs — restore from store, wire live-sync ───────────────────────
 function restoreSharedInputs() {
   const s = window.SharedInputs.read();
@@ -295,6 +315,7 @@ fmGenerateBtn.addEventListener('click', async () => {
 
   hideError();
   _cancelled = false;
+  _currentJobId = null;   // supersede any resumed/older poll loop still running
 
   // Enter generating state
   setGenerating(true);
@@ -330,6 +351,8 @@ fmGenerateBtn.addEventListener('click', async () => {
 
     const data = await res.json();
     jobId = data.job_id;
+    _currentJobId = jobId;
+    saveFmJob(jobId);     // persist so the job survives navigation
   } catch (err) {
     enterErrorState(err.message);
     return;
@@ -339,15 +362,19 @@ fmGenerateBtn.addEventListener('click', async () => {
   await pollStatus(jobId);
 });
 
-async function pollStatus(jobId) {
-  if (_cancelled) return;
+async function pollStatus(jobId, isResume = false) {
+  if (_cancelled || jobId !== _currentJobId) return;
 
   try {
     const res = await fetch(`${API}/figure/status/${jobId}`);
-    if (!res.ok) throw new Error((await res.json()).detail || `Error ${res.status}`);
+    if (!res.ok) {
+      const err = new Error((await res.json().catch(() => ({}))).detail || `Error ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     const data = await res.json();
 
-    if (_cancelled) return;
+    if (_cancelled || jobId !== _currentJobId) return;
 
     const { stage, progress, enhanced_prompt, glb_filename, report, filament, error } = data;
 
@@ -380,14 +407,23 @@ async function pollStatus(jobId) {
 
     // Still in progress — poll again
     await new Promise(r => setTimeout(r, 2500));
-    if (!_cancelled) await pollStatus(jobId);
+    await pollStatus(jobId);
 
   } catch (err) {
-    if (!_cancelled) enterErrorState(err.message);
+    if (_cancelled || jobId !== _currentJobId) return;
+    // On resume, a forgotten job (server restarted → 404, or a corrupted stored
+    // id → 400) shouldn't look like a crash — show a soft "check the Gallery" notice.
+    if (isResume && (err.status === 404 || err.status === 400)) {
+      enterMissingJobState();
+      return;
+    }
+    enterErrorState(err.message);
   }
 }
 
 function enterReadyState({ glb_filename, report, filament }) {
+  _currentJobId = null;
+  clearFmJob();
   setGenerating(false);
   setInputsDisabled(false);
   showViewer();
@@ -418,15 +454,20 @@ function enterReadyState({ glb_filename, report, filament }) {
     fmDownloadGlbBtn.href     = glbUrl;
     fmDownloadGlbBtn.download = glb_filename;
 
+    // The STL is exported client-side from the loaded GLB (see mountViewer).
+    // Name it after the GLB; it's revealed once the model loads and converts.
+    fmDownloadStlBtn.download = glb_filename.replace(/\.glb$/i, '.stl');
+
     // Load 3D model
     mountViewer(glbUrl);
   }
-  // STL is not returned by current backend but keep the element for future use
+  // Stays hidden until the viewer finishes loading and the STL export succeeds.
   fmDownloadStlBtn.classList.add('hidden');
 }
 
 function enterErrorState(msg) {
-  _polling = false;
+  _currentJobId = null;
+  clearFmJob();
   setBoltBouncing(false);
   setBoltMessage('error');
   setGenerating(false);
@@ -436,11 +477,28 @@ function enterErrorState(msg) {
   fmResetBtn.classList.remove('hidden');
 }
 
+// Soft state when a resumed job can no longer be found on the server (e.g. the
+// server restarted). The figure may have finished and been auto-saved, so we
+// point at the Gallery rather than declaring failure.
+function enterMissingJobState() {
+  _currentJobId = null;
+  clearFmJob();
+  setBoltBouncing(false);
+  setBoltMessage('idle');
+  setGenerating(false);
+  setInputsDisabled(false);
+  setProgress(0);
+  showEmpty();
+  showError("We couldn't find your figure in progress — it may already be finished. Check the Gallery! 🖼");
+  fmResetBtn.classList.remove('hidden');
+}
+
 // ── Reset ─────────────────────────────────────────────────────────────────────
 fmResetBtn.addEventListener('click', () => {
-  _cancelled = true;
-  _glbUrl    = null;
-  _stlUrl    = null;
+  _cancelled    = true;
+  _currentJobId = null;
+  _glbUrl       = null;
+  clearFmJob();
 
   // Clear character field and shared store entry
   fmPromptInput.value = '';
@@ -474,6 +532,10 @@ function teardownViewer() {
   if (fmRenderer)      { fmRenderer.dispose(); fmRenderer = null; }
   while (fmViewer.firstChild) fmViewer.removeChild(fmViewer.firstChild);
   fmViewerError.classList.add('hidden');
+
+  // Drop the previous STL export — a new model will regenerate it.
+  if (_stlObjectUrl) { URL.revokeObjectURL(_stlObjectUrl); _stlObjectUrl = null; }
+  fmDownloadStlBtn.classList.add('hidden');
 }
 
 function mountViewer(glbUrl) {
@@ -542,6 +604,20 @@ function mountViewer(glbUrl) {
         if (promptVal) {
           fmViewer.setAttribute('aria-label', `3D model of ${promptVal} — drag to rotate, scroll to zoom`);
         }
+
+        // Export an STL from the loaded geometry so the figure can be 3D-printed.
+        // Meshy only returns a GLB, so we convert it in the browser.
+        try {
+          const stl  = new STLExporter().parse(model, { binary: true });
+          const blob = new Blob([stl], { type: 'model/stl' });
+          if (_stlObjectUrl) URL.revokeObjectURL(_stlObjectUrl);
+          _stlObjectUrl = URL.createObjectURL(blob);
+          fmDownloadStlBtn.href = _stlObjectUrl;
+          fmDownloadStlBtn.classList.remove('hidden');
+        } catch (e) {
+          console.error('STL export failed', e);
+          fmDownloadStlBtn.classList.add('hidden');
+        }
       },
       undefined,
       err => {
@@ -588,6 +664,40 @@ function mountViewer(glbUrl) {
 
   // Wire live-sync listeners
   wireSharedInputListeners();
+
+  // Re-attach to a job that was still running when the user navigated away.
+  resumeJobIfAny();
 })();
+
+// ── Resume an in-flight job after navigation ──────────────────────────────────
+// A job started earlier is still running server-side, so re-attach to it instead
+// of abandoning it. (This replaces the old "leaving cancels the job" warning.)
+function resumeJobIfAny() {
+  const stored = readFmJob();
+  if (!stored || !stored.job_id) return;
+
+  // Staleness guard — don't resume a job too old to plausibly still be running.
+  if (!stored.started_at || (Date.now() - stored.started_at) > FM_JOB_MAX_AGE_MS) {
+    clearFmJob();
+    return;
+  }
+
+  // Restore the in-progress UI shell, then re-attach the poll loop.
+  _cancelled    = false;
+  _currentJobId = stored.job_id;
+  setGenerating(true);
+  setInputsDisabled(true);
+  showProgress();
+  setProgress(0);
+  setBoltBouncing(true);
+  setBoltMessage('prompting');
+  fmResetBtn.classList.add('hidden');
+  fmEnhancedPromptBox.classList.add('hidden');
+  fmReportCard.classList.add('hidden');
+
+  // Fire-and-forget; the first poll rebuilds progress or jumps straight to the
+  // finished result. isResume=true makes a "job not found" fail soft.
+  pollStatus(stored.job_id, true);
+}
 
 setInterval(checkHealth, 30_000);

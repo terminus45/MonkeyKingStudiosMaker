@@ -169,6 +169,11 @@ function buildImageCard(img) {
       <p class="image-card-date">${escHtml(dateStr)}</p>
     </div>
     <div class="book-actions">
+      <button
+        class="book-action-btn"
+        data-action="reuse-image"
+        aria-label="Reuse this prompt in the Character Generator"
+      >↺ Reuse</button>
       <a
         class="book-action-btn"
         href="${API}/image/${escHtml(img.filename)}"
@@ -184,8 +189,30 @@ function buildImageCard(img) {
     </div>
   `;
 
+  card.querySelector('[data-action="reuse-image"]').addEventListener('click', () => reuseImagePrompt(img));
   card.querySelector('[data-action="delete-image"]').addEventListener('click', e => deleteImage(e, img.id, card));
   return card;
+}
+
+// Load a saved image's prompt/style/model back into the Character Generator,
+// then navigate there. Prompt + style flow through the shared-inputs store;
+// the model is merged into the Character Generator's own draft.
+function reuseImagePrompt(img) {
+  if (window.SharedInputs) {
+    window.SharedInputs.patch({
+      character: img.prompt || '',
+      story: img.story || '',
+      style: img.style_prompt || '',
+    });
+  }
+  if (img.model) {
+    try {
+      const draft = JSON.parse(localStorage.getItem('monkeyking_cg_draft') || '{}');
+      draft.model = img.model;
+      localStorage.setItem('monkeyking_cg_draft', JSON.stringify(draft));
+    } catch { /* quota / private-mode / corrupted draft */ }
+  }
+  window.location.href = 'character_generator.html';
 }
 
 async function deleteImage(e, imageId, card) {

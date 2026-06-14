@@ -47,49 +47,65 @@ def generate(
     height: int = 512,
     api_key: Optional[str] = None,
 ) -> Image.Image:
+    import time
+
     from google.genai import types as gt
-    from google.genai.errors import ClientError
+    from google.genai.errors import ClientError, ServerError
 
     client = _client(api_key)
     full_prompt = f"{content_prompt}, {style_prompt}" if style_prompt else content_prompt
     ar = aspect_ratio if aspect_ratio in ASPECT_RATIOS else _fit_aspect_ratio(width, height)
     model_type = next((m["type"] for m in GEMINI_MODELS if m["id"] == model_id), "imagen")
 
-    try:
-        if model_type == "imagen":
-            result = client.models.generate_images(
+    # Imagen/Gemini intermittently return transient 5xx (e.g. 500 INTERNAL).
+    # Retry those a few times with backoff before surfacing an error.
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            if model_type == "imagen":
+                result = client.models.generate_images(
+                    model=model_id,
+                    prompt=full_prompt,
+                    config=gt.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio=ar,
+                    ),
+                )
+                if not result.generated_images:
+                    raise RuntimeError("Imagen returned no images — content may have been blocked.")
+                return Image.open(io.BytesIO(result.generated_images[0].image.image_bytes))
+
+            # Gemini multimodal generation
+            response = client.models.generate_content(
                 model=model_id,
-                prompt=full_prompt,
-                config=gt.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio=ar,
-                ),
+                contents=full_prompt,
+                config=gt.GenerateContentConfig(response_modalities=["IMAGE"]),
             )
-            if not result.generated_images:
-                raise RuntimeError("Imagen returned no images — content may have been blocked.")
-            return Image.open(io.BytesIO(result.generated_images[0].image.image_bytes))
+            for part in response.candidates[0].content.parts:
+                if part.inline_data is not None:
+                    return Image.open(io.BytesIO(part.inline_data.data))
+            raise RuntimeError("Gemini returned no image — try a different prompt.")
 
-        # Gemini multimodal generation
-        response = client.models.generate_content(
-            model=model_id,
-            contents=full_prompt,
-            config=gt.GenerateContentConfig(response_modalities=["IMAGE"]),
-        )
-        for part in response.candidates[0].content.parts:
-            if part.inline_data is not None:
-                return Image.open(io.BytesIO(part.inline_data.data))
-        raise RuntimeError("Gemini returned no image — try a different prompt.")
+        except ServerError as e:
+            # Transient server-side error — retry with backoff, then give up cleanly.
+            if attempt < max_attempts - 1:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise RuntimeError(
+                f"The image service had a temporary error ({getattr(e, 'code', '5xx')}) "
+                "and didn't recover after a few retries. Please try again in a moment."
+            ) from e
 
-    except ClientError as e:
-        if e.code == 404:
-            raise RuntimeError(
-                f"Model '{model_id}' not found (404). "
-                "Check that your API key has access to this model. "
-                "Try switching to Gemini 2.5 Flash if Imagen is unavailable."
-            ) from e
-        if e.code in (401, 403):
-            raise RuntimeError(
-                f"Permission denied ({e.code}). Check your GEMINI_API_KEY is valid "
-                "and has access to the selected model."
-            ) from e
-        raise RuntimeError(f"Gemini API error {e.code}: {e.message}") from e
+        except ClientError as e:
+            if e.code == 404:
+                raise RuntimeError(
+                    f"Model '{model_id}' not found (404). "
+                    "Check that your API key has access to this model. "
+                    "Try switching to Gemini 2.5 Flash if Imagen is unavailable."
+                ) from e
+            if e.code in (401, 403):
+                raise RuntimeError(
+                    f"Permission denied ({e.code}). Check your GEMINI_API_KEY is valid "
+                    "and has access to the selected model."
+                ) from e
+            raise RuntimeError(f"Gemini API error {e.code}: {e.message}") from e

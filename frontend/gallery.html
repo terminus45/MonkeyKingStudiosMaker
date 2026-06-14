@@ -155,7 +155,9 @@
     </div>
   </div>
 
-  <!-- storybook_print.js must be a plain (non-module) script so openPrintWindow is on window -->
+  <!-- shared_inputs.js / storybook_print.js are plain (non-module) scripts so their globals
+       are available to the deferred gallery.js module -->
+  <script src="shared_inputs.js"></script>
   <script src="storybook_print.js"></script>
   <script type="module" src="gallery.js"></script>
 </body>

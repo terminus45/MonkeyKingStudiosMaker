@@ -40,6 +40,20 @@ const cgClearStripBtn = document.getElementById('cgClearStripBtn');
 let thumbCount = 0;
 let currentFilename = null;
 
+// Generated images this session — persisted so navigating away and back
+// doesn't lose them. Oldest first; `active` is the one shown in the main frame.
+const CG_SESSION_KEY = 'monkeyking_cg_session';
+let sessionImages = [];   // [{ filename, description }]
+
+function saveSession() {
+  try {
+    localStorage.setItem(CG_SESSION_KEY, JSON.stringify({
+      images: sessionImages,
+      active: currentFilename,
+    }));
+  } catch { /* quota / private-mode */ }
+}
+
 // ── Health check ────────────────────────────────────────────────────────────
 async function checkHealth() {
   try {
@@ -299,6 +313,7 @@ function addThumbToStrip(filename, description) {
     cgDownloadBtn.href = src;
     cgUseAsCoverBtn.dataset.filename = filename;
     currentFilename = filename;
+    saveSession();
   });
 
   // Prepend so newest is first
@@ -320,6 +335,9 @@ cgClearStripBtn.addEventListener('click', () => {
   cgStripScroll.innerHTML = '';
   thumbCount = 0;
   cgStrip.classList.add('hidden');
+  sessionImages = [];
+  currentFilename = null;
+  try { localStorage.removeItem(CG_SESSION_KEY); } catch { /* private-mode */ }
 });
 
 // ── Generate ─────────────────────────────────────────────────────────────────
@@ -366,6 +384,10 @@ cgGenerateBtn.addEventListener('click', async () => {
     showImage(filename, character);
     addThumbToStrip(filename, character);
 
+    // Persist this session image so it survives navigation
+    sessionImages.push({ filename, description: character });
+    saveSession();
+
     // Fire-and-forget: save to gallery (ignore failures)
     fetch(`${API}/gallery/image`, {
       method:  'POST',
@@ -373,6 +395,7 @@ cgGenerateBtn.addEventListener('click', async () => {
       body:    JSON.stringify({
         filename,
         prompt:       character,
+        story,
         style_prompt: style,
         model:        cgModelSelect.value,
       }),
@@ -403,6 +426,29 @@ cgUseAsCoverBtn.addEventListener('click', () => {
   }, 2000);
 });
 
+// ── Restore generated images from a previous visit ────────────────────────────
+function restoreSession() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(CG_SESSION_KEY) || 'null'); } catch { return; }
+  if (!s || !Array.isArray(s.images) || s.images.length === 0) return;
+
+  sessionImages = s.images.filter(it => it && it.filename);
+  if (sessionImages.length === 0) return;
+
+  // Rebuild the strip oldest→newest (addThumbToStrip prepends, so newest ends up first)
+  sessionImages.forEach(it => addThumbToStrip(it.filename, it.description || ''));
+
+  // Show the previously-active image (fall back to the newest)
+  const active = sessionImages.find(it => it.filename === s.active)
+    || sessionImages[sessionImages.length - 1];
+  showImage(active.filename, active.description || '');
+
+  const activeBtn = cgStripScroll.querySelector(
+    `.cg-strip-thumb[data-filename="${CSS.escape(active.filename)}"]`
+  );
+  if (activeBtn) setActiveThumb(activeBtn);
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
@@ -414,6 +460,9 @@ cgUseAsCoverBtn.addEventListener('click', () => {
 
   // Restore shared inputs (character/story/style) from SharedInputs store
   restoreSharedInputs();
+
+  // Restore any images generated earlier this session
+  restoreSession();
 
   // 4. Wire live-sync listeners
   wireSharedInputListeners();
