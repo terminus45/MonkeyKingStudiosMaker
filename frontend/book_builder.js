@@ -1032,21 +1032,18 @@ function splitRow(line, delim) {
 const LS_KEY      = 'monkeyking_bb_state';
 const LANG_KEY    = 'monkeyking_bb_lang';   // preferred language, survives Clear
 
-// Debounced patch for shared store from Step 1 inputs
-let _bbSharedTimer = null;
-function debouncedPatchShared(field, value) {
-  clearTimeout(_bbSharedTimer);
-  _bbSharedTimer = setTimeout(() => SharedInputs.patch({ [field]: value }), 400);
-}
-
+// Patch the shared store immediately on every input. No debounce: a localStorage
+// write per keystroke is negligible and SharedInputs.patch() no-ops when nothing
+// changed. This guarantees the value is always persisted before the user can
+// navigate away (a debounced write would be lost mid-flight on navigation).
 conceptInput.addEventListener('input', () => {
-  debouncedPatchShared('story', conceptInput.value);
+  SharedInputs.patch({ story: conceptInput.value });
 });
 characterInput.addEventListener('input', () => {
-  debouncedPatchShared('character', characterInput.value);
+  SharedInputs.patch({ character: characterInput.value });
 });
 stylePromptInput.addEventListener('input', () => {
-  debouncedPatchShared('style', stylePromptInput.value);
+  SharedInputs.patch({ style: stylePromptInput.value });
 });
 
 function saveState() {

@@ -21,6 +21,13 @@ MESHY_API_KEY  = os.getenv("MESHY_API_KEY", "")
 FIGURES_DIR    = os.getenv("FIGURES_DIR", "./output/figures")
 KEYS_FILE      = os.getenv("KEYS_FILE", "./config.json")
 
+# Child-safety guardrail explicitly appended to every Style Prompt used for
+# image/model generation. Override via env if needed.
+SAFETY_STYLE_SUFFIX = os.getenv(
+    "SAFETY_STYLE_SUFFIX",
+    " suitable for six year old, nothing scary, nothing violent",
+)
+
 # Generation defaults
 DEFAULT_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5

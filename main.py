@@ -28,6 +28,7 @@ from config import (
     FIGURES_DIR,
     MODEL_ID,
     OUTPUT_DIR,
+    SAFETY_STYLE_SUFFIX,
 )
 from generator import generator, discover_models, discover_loras
 import gemini_generator
@@ -114,6 +115,14 @@ def _status_update(patch: dict):
     with _gen_status_lock:
         _gen_status.update(patch)
 
+
+def _safe_style(style: Optional[str]) -> str:
+    """Append the child-safety guardrail to a Style Prompt (idempotent)."""
+    s = (style or "").strip()
+    if SAFETY_STYLE_SUFFIX.strip().lower() in s.lower():
+        return s
+    return (s + SAFETY_STYLE_SUFFIX).strip()
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -194,6 +203,7 @@ def _resolve_loras(req: GenerateRequest) -> list[dict]:
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
+    req.style_prompt = _safe_style(req.style_prompt)
     try:
         if req.provider == "gemini":
             image = gemini_generator.generate(
@@ -265,6 +275,7 @@ def generate(req: GenerateRequest):
 @app.post("/generate/stream")
 async def generate_stream(req: GenerateRequest):
     """SSE endpoint — emits step progress then a final done event with filename/seed."""
+    req.style_prompt = _safe_style(req.style_prompt)
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -498,8 +509,8 @@ def decompose(req: DecomposeRequest):
             "CONSISTENTLY (same appearance, outfit, colors) in every image_prompt, "
             "using visual description only — never the character's name."
         )
-    if req.style_suffix:
-        user_content += f"\n\nApply this visual style to every image_prompt: {req.style_suffix}"
+    safe_style = _safe_style(req.style_suffix)
+    user_content += f"\n\nApply this visual style to every image_prompt: {safe_style}"
 
     tool = _decompose_tool(lang)
 
@@ -1118,7 +1129,7 @@ def figure_generate(req: FigureGenerateRequest):
     thread = threading.Thread(
         target=_run_figure_job,
         args=(job_id, req.prompt.strip(), resolved_anthropic_key, resolved_meshy_key,
-              (req.style or "").strip(), (req.story or "").strip()),
+              _safe_style(req.style), (req.story or "").strip()),
         daemon=True,
     )
     thread.start()

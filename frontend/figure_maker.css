@@ -35,11 +35,10 @@
   align-items: center;
   gap: 1rem;
   padding: .75rem 1rem;
-  background: var(--paper-dark);
-  border: 2px solid var(--border);
-  border-left: 5px solid var(--teal);
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.10);
+  border-left: 3px solid #ff6b35;
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
 }
 
 .bolt-mascot {
@@ -59,7 +58,7 @@
   flex: 1;
   font-size: 1rem;
   font-weight: 700;
-  color: var(--ink);
+  color: #ffffff;
   line-height: 1.4;
 }
 
@@ -73,10 +72,9 @@
 }
 
 .fm-controls-card {
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   padding: 1.5rem;
   /* border-left set inline on the element */
 }
@@ -93,8 +91,8 @@
 /* ── Enhanced prompt reveal ── */
 .fm-enhanced-prompt {
   margin-top: .75rem;
-  background: rgba(58,125,122,.07);
-  border: 1px solid rgba(58,125,122,.25);
+  background: rgba(255,107,53,.08);
+  border: 1px solid rgba(255,107,53,.25);
   border-radius: 10px;
   padding: .6rem .8rem;
 }
@@ -105,12 +103,12 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .06em;
-  color: var(--teal-dark);
+  color: rgba(255,107,53,.90);
   margin-bottom: .25rem;
 }
 #fmEnhancedPromptText {
   font-size: .85rem;
-  color: var(--ink-soft);
+  color: rgba(255,255,255,.60);
   font-style: italic;
   line-height: 1.45;
 }
@@ -124,10 +122,9 @@
 
 /* ── Viewer empty state ── */
 .fm-viewer-empty {
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -152,10 +149,9 @@
   gap: .75rem;
   padding: 3rem 2rem;
   width: 100%;
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   min-height: 360px;
   justify-content: center;
 }
@@ -171,14 +167,14 @@
   width: 100%;
   max-width: 360px;
   height: 12px;
-  background: var(--border);
+  background: rgba(255,255,255,.10);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .fm-progress-fill {
   height: 100%;
-  background: var(--teal);
+  background: #ff6b35;
   border-radius: 6px;
   transition: width .4s ease;
 }
@@ -190,10 +186,9 @@
 
 /* ── 3D Viewer frame ── */
 .fm-viewer-frame {
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
 
@@ -223,8 +218,8 @@
   left: 50%;
   transform: translateX(-50%);
   font-size: .75rem;
-  color: var(--muted);
-  background: rgba(245,240,232,.80);
+  color: rgba(255,255,255,.60);
+  background: rgba(255,255,255,.10);
   padding: .25rem .65rem;
   border-radius: 20px;
   pointer-events: none;
@@ -244,21 +239,20 @@
   align-items: center;
   justify-content: center;
   gap: .75rem;
-  background: rgba(245,240,232,.95);
+  background: rgba(10,11,26,.92);
   padding: 2rem;
   text-align: center;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: calc(var(--radius) - 1px);
   z-index: 3;
 }
 .fm-viewer-error.hidden { display: none; }
 
 /* ── Print report card ── */
 .fm-report-card {
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  border-left: 5px solid var(--olive);
+  border-left: 3px solid #ff6b35;
   padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
@@ -280,15 +274,16 @@
 .fm-report-icon { font-size: 1.2rem; }
 
 .fm-filament-tag {
-  font-size: .75rem;
+  font-size: .72rem;
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
-  color: var(--olive-dark);
-  background: rgba(107,124,58,.12);
-  border: 1px solid rgba(107,124,58,.30);
+  color: rgba(255,255,255,.70);
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.20);
   border-radius: 12px;
   padding: .2rem .55rem;
+  font-family: 'Space Mono', 'SFMono-Regular', Consolas, monospace;
 }
 
 .fm-report-text {

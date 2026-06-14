@@ -11,11 +11,10 @@
 
 /* Settings card */
 .settings-card {
-  background: #faf7f2;
-  border: 2px solid var(--border);
+  background: #0f1129;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  border-left: 5px solid var(--mustard);
+  border-left: 3px solid #ff6b35;
   overflow: hidden;
 }
 
@@ -40,7 +39,7 @@
   border-radius: 5px;
   padding: .05rem .35rem;
   font-size: .8rem;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-family: 'Space Mono', 'SFMono-Regular', Consolas, monospace;
   color: var(--ink-soft);
 }
 
@@ -56,7 +55,7 @@
   flex-direction: column;
   gap: .65rem;
   padding: 1.25rem 1.5rem;
-  border-top: 2px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 
 .settings-key-label-group {
@@ -95,7 +94,7 @@
 
 .settings-key-input {
   flex: 1;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-family: 'Space Mono', 'SFMono-Regular', Consolas, monospace;
   font-size: .88rem;
   border-radius: 12px;
   padding-right: 4.5rem;
@@ -122,8 +121,8 @@
   border-radius: 6px;
   transition: color .15s, background .15s;
 }
-.settings-eye-btn:hover { color: var(--teal); background: rgba(58,125,122,.08); }
-.settings-eye-btn[aria-pressed="true"] { color: var(--teal); }
+.settings-eye-btn:hover { color: #ff6b35; background: rgba(255,255,255,.10); }
+.settings-eye-btn[aria-pressed="true"] { color: #ff6b35; }
 
 /* Clear (✕) button */
 .settings-clear-btn {
@@ -145,7 +144,7 @@
   border-radius: 6px;
   transition: color .15s;
 }
-.settings-clear-btn:hover { color: var(--terracotta); }
+.settings-clear-btn:hover { color: #e5484d; }
 
 /* Status chip */
 .settings-status-chip {
@@ -164,9 +163,9 @@
 }
 .settings-status-chip[data-state="set-env"],
 .settings-status-chip[data-state="set-config"] {
-  background: rgba(58,125,122,.12);
-  color: var(--teal-dark);
-  border-color: rgba(58,125,122,.35);
+  background: rgba(74,222,128,.15);
+  color: #4ade80;
+  border-color: rgba(74,222,128,.35);
 }
 .settings-status-chip[data-state="not-set"] {
   background: transparent;
@@ -180,19 +179,19 @@
 /* Footer */
 .settings-footer {
   padding: 1.25rem 1.5rem 1.5rem;
-  border-top: 2px solid var(--border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: .6rem;
 }
 
-/* Success message variant (teal) — applied to #settingsStatusMsg on success */
+/* Success message variant — applied to #settingsStatusMsg on success */
 .settings-success-msg {
   margin-top: .4rem;
   font-size: .82rem;
-  color: var(--teal-dark);
-  background: rgba(58,125,122,.07);
-  border: 1px solid rgba(58,125,122,.28);
+  color: #4ade80;
+  background: rgba(74,222,128,.10);
+  border: 1px solid rgba(74,222,128,.28);
   border-radius: 10px;
   padding: .45rem .65rem;
   line-height: 1.45;
