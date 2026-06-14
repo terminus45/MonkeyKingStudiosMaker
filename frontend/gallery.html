@@ -4,21 +4,39 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gallery · MonkeyKing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="gallery.css">
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
 
+  <a href="#galleryMain" class="skip-link">Skip to main content</a>
+
   <header>
     <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
       <div class="header-title">
         <span class="title-zh">齐天大圣</span>
         <span class="title-en">MonkeyKing Story Studio</span>
       </div>
-      <nav class="header-nav">
-        <a href="index.html" class="nav-link">Image Studio</a>
-        <a href="book_builder.html" class="nav-link">Book Builder</a>
-        <a href="gallery.html" class="nav-link active">Gallery</a>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
+        <a href="book_builder.html" class="nav-link">📖 Book Builder</a>
+        <a href="figure_maker.html" class="nav-link">🧩 Figure Maker</a>
+        <a href="gallery.html" class="nav-link active">🖼 Gallery</a>
       </nav>
       <div class="server-status">
         <span class="status-dot" id="statusDot"></span>
@@ -27,20 +45,116 @@
     </div>
   </header>
 
-  <main class="gallery-main">
+  <main class="gallery-main" id="galleryMain">
 
     <div class="gallery-toolbar">
-      <h2 class="gallery-heading">Saved Storybooks</h2>
-      <button id="refreshBtn" class="project-btn">↺ Refresh</button>
+      <div class="gallery-tabs" role="tablist" aria-label="Gallery type">
+        <button
+          class="gallery-tab active"
+          id="tab-images"
+          role="tab"
+          aria-selected="true"
+          aria-controls="panel-images"
+          data-tab="images"
+        >🖼 Images</button>
+        <button
+          class="gallery-tab"
+          id="tab-books"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-books"
+          tabindex="-1"
+          data-tab="books"
+        >📖 Books</button>
+        <button
+          class="gallery-tab"
+          id="tab-models"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-models"
+          tabindex="-1"
+          data-tab="models"
+        >🧊 3D Models</button>
+      </div>
+      <button id="refreshBtn" class="settings-btn">↺ Refresh</button>
     </div>
 
-    <div id="galleryGrid" class="gallery-book-grid">
-      <p class="gallery-empty-msg" id="emptyMsg">Loading…</p>
+    <!-- IMAGES PANEL -->
+    <div
+      id="panel-images"
+      role="tabpanel"
+      aria-labelledby="tab-images"
+      class="gallery-panel"
+      tabindex="0"
+    >
+      <div id="imagesGrid" class="gallery-image-grid">
+        <p class="gallery-empty-msg" id="imagesEmpty">Loading…</p>
+      </div>
+    </div>
+
+    <!-- BOOKS PANEL -->
+    <div
+      id="panel-books"
+      role="tabpanel"
+      aria-labelledby="tab-books"
+      class="gallery-panel hidden"
+      tabindex="0"
+    >
+      <div id="booksGrid" class="gallery-book-grid">
+        <p class="gallery-empty-msg" id="booksEmpty">Loading…</p>
+      </div>
+    </div>
+
+    <!-- 3D MODELS PANEL -->
+    <div
+      id="panel-models"
+      role="tabpanel"
+      aria-labelledby="tab-models"
+      class="gallery-panel hidden"
+      tabindex="0"
+    >
+      <div id="modelsGrid" class="gallery-model-grid">
+        <p class="gallery-empty-msg" id="modelsEmpty">Loading…</p>
+      </div>
     </div>
 
   </main>
 
+  <!-- Model viewer modal -->
+  <div
+    class="model-viewer-modal hidden"
+    id="modelViewerModal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="3D model viewer"
+  >
+    <div class="model-viewer-backdrop" id="modelViewerBackdrop" aria-hidden="true"></div>
+    <div class="model-viewer-content">
+      <div class="model-viewer-header">
+        <h3 class="model-viewer-title" id="modelViewerTitle">3D Model</h3>
+        <button class="model-viewer-close" id="modelViewerClose" aria-label="Close 3D viewer">✕</button>
+      </div>
+      <div
+        id="modelViewerCanvas"
+        class="model-viewer-canvas"
+        role="img"
+        aria-label="Interactive 3D model — drag to rotate, scroll to zoom"
+      ></div>
+      <p class="model-viewer-hint" aria-hidden="true">Drag to rotate · Scroll to zoom</p>
+      <div class="model-viewer-footer">
+        <a
+          class="settings-btn"
+          id="modelViewerDownload"
+          href="#"
+          download
+          aria-label="Download GLB file"
+        >↓ Download GLB</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- storybook_print.js must be a plain (non-module) script so openPrintWindow is on window -->
   <script src="storybook_print.js"></script>
-  <script src="gallery.js"></script>
+  <script type="module" src="gallery.js"></script>
 </body>
 </html>

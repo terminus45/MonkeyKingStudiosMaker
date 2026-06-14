@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Character Generator · MonkeyKing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="character_generator.css">
+</head>
+<body>
+
+  <a href="#cgMain" class="skip-link">Skip to main content</a>
+
+  <header>
+    <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
+      <div class="header-title">
+        <span class="title-zh">齐天大圣</span>
+        <span class="title-en">MonkeyKing Story Studio</span>
+      </div>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link active">🎭 Character Generator</a>
+        <a href="book_builder.html" class="nav-link">📖 Book Builder</a>
+        <a href="figure_maker.html" class="nav-link">🧩 Figure Maker</a>
+        <a href="gallery.html" class="nav-link">🖼 Gallery</a>
+      </nav>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="cg-main" id="cgMain">
+
+    <div class="cg-layout">
+
+      <!-- LEFT: Controls panel -->
+      <aside class="cg-controls-panel" aria-label="Character generation controls">
+        <div class="builder-step" id="cgControlCard" style="border-left: 5px solid var(--mustard)">
+
+          <div class="step-header">
+            <h2>Character Details</h2>
+          </div>
+
+          <!-- CHARACTER DESCRIPTION -->
+          <div class="control-group" id="cgDescGroup">
+            <label for="cgDescInput">Character Description</label>
+            <textarea
+              id="cgDescInput"
+              rows="4"
+              placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
+              aria-describedby="cgDescHint"
+              required
+            ></textarea>
+            <p class="hint" id="cgDescHint">
+              Describe your hero's appearance, personality, and any key props.
+            </p>
+          </div>
+
+          <!-- STYLE PROMPT -->
+          <div class="control-group" id="cgStyleGroup" style="margin-top: .9rem">
+            <label for="cgStyleInput">
+              Style Prompt <span class="hint">(optional — applied to the portrait)</span>
+            </label>
+            <textarea
+              id="cgStyleInput"
+              rows="2"
+              placeholder="e.g. Vibrant watercolor, children's book art, warm tones…"
+            ></textarea>
+            <div class="presets" id="cgStylePresets" role="group" aria-label="Style presets" style="margin-top: .4rem">
+              <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+              <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+              <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+              <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+              <button class="preset" data-suffix="">Clear</button>
+            </div>
+          </div>
+
+          <!-- GEMINI OPTIONS ROW -->
+          <div class="control-group" id="cgGeminiGroup" style="margin-top: .9rem">
+            <div class="gemini-options-row">
+
+              <div class="gemini-opt">
+                <label for="cgModelSelect">Model</label>
+                <select id="cgModelSelect" aria-label="Gemini model">
+                  <option value="imagen-4.0-generate-001">Imagen 4</option>
+                  <option value="imagen-4.0-fast-generate-001">Imagen 4 Fast</option>
+                  <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra</option>
+                  <option value="gemini-2.5-flash-image">Gemini 2.5 Flash</option>
+                </select>
+              </div>
+
+              <div class="gemini-opt">
+                <label>Aspect Ratio</label>
+                <div class="presets" id="cgAspectPresets" role="group" aria-label="Aspect ratio">
+                  <button class="preset ar-btn" data-ar="1:1">1:1</button>
+                  <button class="preset ar-btn active" data-ar="3:4">3:4</button>
+                  <button class="preset ar-btn" data-ar="4:3">4:3</button>
+                  <button class="preset ar-btn" data-ar="9:16">9:16</button>
+                  <button class="preset ar-btn" data-ar="16:9">16:9</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- GENERATE BUTTON -->
+          <button
+            class="generate-btn"
+            id="cgGenerateBtn"
+            style="width: 100%; margin-top: 1.25rem"
+            aria-live="polite"
+          >
+            <span id="cgGenerateLabel">🎭 Generate Character</span>
+            <div class="spinner hidden" id="cgSpinner" aria-hidden="true"></div>
+          </button>
+
+          <!-- INLINE ERROR (controls panel) -->
+          <p class="cg-error hidden" id="cgErrorMsg" role="alert" aria-live="assertive"></p>
+
+        </div>
+      </aside>
+
+      <!-- RIGHT: Result area -->
+      <section class="cg-result-area" aria-label="Generated character portrait">
+
+        <!-- IMAGE FRAME -->
+        <div class="cg-image-frame" id="cgImageFrame" aria-live="polite">
+
+          <!-- EMPTY STATE (default) -->
+          <div class="cg-empty-state" id="cgEmptyState" aria-hidden="false">
+            <span class="cg-empty-icon" aria-hidden="true">🎭</span>
+            <p>Your character portrait will appear here.</p>
+            <p class="hint">Describe your hero and hit Generate.</p>
+          </div>
+
+          <!-- LOADING STATE (hidden until generating) -->
+          <div class="cg-loading-state hidden" id="cgLoadingState" aria-hidden="true" aria-label="Generating portrait…">
+            <div class="spinner cg-big-spinner" aria-hidden="true"></div>
+            <p>Generating your character…</p>
+          </div>
+
+          <!-- SUCCESS STATE (hidden until image ready) -->
+          <img
+            class="cg-portrait hidden"
+            id="cgPortraitImg"
+            src=""
+            alt=""
+            aria-hidden="true"
+          >
+
+        </div>
+
+        <!-- ACTION ROW (hidden until image ready) -->
+        <div class="cg-action-row hidden" id="cgActionRow">
+          <a
+            class="settings-btn"
+            id="cgDownloadBtn"
+            href="#"
+            download="character-portrait.png"
+            aria-label="Download portrait image"
+          >↓ Download</a>
+
+          <button
+            class="settings-btn"
+            id="cgUseAsCoverBtn"
+            aria-label="Copy filename to clipboard for use as book cover"
+          >📖 Use as Book Cover</button>
+        </div>
+
+      </section>
+
+    </div>
+
+    <!-- BOTTOM: Session thumbnail strip -->
+    <section class="cg-strip-section hidden" id="cgStrip" aria-label="Generated portraits this session">
+      <div class="cg-strip-header">
+        <h3>This Session</h3>
+        <button class="settings-btn" id="cgClearStripBtn" aria-label="Clear session history">✕ Clear</button>
+      </div>
+      <div class="cg-strip-scroll" id="cgStripScroll" role="list">
+        <!-- .cg-strip-thumb elements injected by JS -->
+      </div>
+    </section>
+
+  </main>
+
+  <script src="character_generator.js"></script>
+</body>
+</html>

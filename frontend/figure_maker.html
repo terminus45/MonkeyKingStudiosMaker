@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figure Maker · MonkeyKing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="figure_maker.css">
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <a href="#fmMain" class="skip-link">Skip to main content</a>
+
+  <header>
+    <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
+      <div class="header-title">
+        <span class="title-zh">齐天大圣</span>
+        <span class="title-en">MonkeyKing Story Studio</span>
+      </div>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
+        <a href="book_builder.html" class="nav-link">📖 Book Builder</a>
+        <a href="figure_maker.html" class="nav-link active">🧩 Figure Maker</a>
+        <a href="gallery.html" class="nav-link">🖼 Gallery</a>
+      </nav>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="fm-main" id="fmMain">
+
+    <!-- Mascot zone -->
+    <div class="fm-mascot-zone" id="fmMascotZone" aria-live="polite" aria-atomic="true">
+      <div class="bolt-mascot" id="fmBoltMascot" aria-hidden="true">🤖</div>
+      <div class="bolt-bubble" id="fmBoltBubble" role="status">
+        <span id="fmBoltText">What should we build today?</span>
+      </div>
+    </div>
+
+    <div class="fm-layout">
+
+      <!-- RIGHT column: Controls/prompt panel (right on desktop, first on mobile) -->
+      <aside class="fm-controls-panel" aria-label="Figure generation controls">
+        <div class="fm-controls-card" id="fmControlCard" style="border-left: 5px solid var(--mustard)">
+
+          <div class="fm-controls-header">
+            <h2>What do you want to build?</h2>
+          </div>
+
+          <!-- Prompt input -->
+          <div class="control-group" id="fmPromptGroup">
+            <label for="fmPromptInput">Describe your figure</label>
+            <textarea
+              id="fmPromptInput"
+              rows="4"
+              placeholder="A roaring T-Rex with tiny arms…"
+              aria-describedby="fmPromptHint"
+              maxlength="500"
+            ></textarea>
+            <p class="hint" id="fmPromptHint">
+              Type anything — Bolt will help turn it into a great 3D design!
+            </p>
+          </div>
+
+          <!-- Quick-pick chips -->
+          <div class="control-group" id="fmChipGroup" style="margin-top: .75rem">
+            <label id="fmChipLabel">Quick ideas</label>
+            <div class="presets" id="fmChips" role="group" aria-labelledby="fmChipLabel">
+              <button class="preset" data-prompt="rocket ship">🚀 Rocket ship</button>
+              <button class="preset" data-prompt="dinosaur">🦖 Dinosaur</button>
+              <button class="preset" data-prompt="cute kitty cat">🐱 Kitty</button>
+              <button class="preset" data-prompt="fantasy castle">🏰 Castle</button>
+              <button class="preset" data-prompt="friendly robot">🤖 Robot</button>
+              <button class="preset" data-prompt="pirate ship">🏴‍☠️ Pirate ship</button>
+              <button class="preset" data-prompt="rainbow unicorn">🦄 Unicorn</button>
+            </div>
+          </div>
+
+          <!-- Generate button -->
+          <button
+            class="generate-btn"
+            id="fmGenerateBtn"
+            style="width: 100%; margin-top: 1.25rem"
+          >
+            <span id="fmGenerateLabel">🧩 Build my figure!</span>
+            <div class="spinner hidden" id="fmSpinner" aria-hidden="true"></div>
+          </button>
+
+          <!-- Enhanced prompt reveal -->
+          <div class="fm-enhanced-prompt hidden" id="fmEnhancedPromptBox" aria-live="polite">
+            <p class="fm-enhanced-label">Bolt's version of your idea:</p>
+            <p id="fmEnhancedPromptText"></p>
+          </div>
+
+          <!-- Inline error -->
+          <p class="cg-error hidden" id="fmErrorMsg" role="alert" aria-live="assertive"></p>
+
+          <!-- Make another -->
+          <button
+            class="settings-btn hidden"
+            id="fmResetBtn"
+            style="width: 100%; margin-top: .75rem; justify-content: center;"
+            aria-label="Clear and start over"
+          >↺ Make another</button>
+
+        </div>
+      </aside>
+
+      <!-- LEFT column: Viewer + report area -->
+      <section class="fm-result-area" aria-label="3D model viewer and print report">
+
+        <!-- Empty state -->
+        <div class="fm-viewer-empty" id="fmViewerEmpty">
+          <span class="fm-viewer-empty-icon" aria-hidden="true">🧩</span>
+          <p>Your 3D figure will appear here.</p>
+          <p class="hint">Type what you want to build and hit the button!</p>
+        </div>
+
+        <!-- Generating / progress state -->
+        <div class="fm-progress-state hidden" id="fmProgressState" aria-label="Generating your figure">
+          <p class="fm-stage-label" id="fmStageLabel" aria-live="polite">Dreaming up your idea…</p>
+          <div
+            class="fm-progress-track"
+            role="progressbar"
+            aria-valuenow="0"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-labelledby="fmStageLabel"
+            id="fmProgressBar"
+          >
+            <div class="fm-progress-fill" id="fmProgressFill" style="width: 0%"></div>
+          </div>
+          <p class="fm-progress-pct hint" id="fmProgressPct">0%</p>
+        </div>
+
+        <!-- 3D Viewer frame (hidden until ready) -->
+        <div class="fm-viewer-frame hidden" id="fmViewerFrame">
+
+          <div
+            id="fmViewer"
+            role="img"
+            aria-label="Interactive 3D model viewer — drag to rotate, scroll to zoom"
+            style="width: 100%; height: 100%;"
+          ></div>
+
+          <p class="fm-viewer-hint" id="fmViewerHint" aria-hidden="true">Drag to rotate · Scroll to zoom</p>
+
+          <!-- Error boundary fallback -->
+          <div class="fm-viewer-error hidden" id="fmViewerError" role="alert">
+            <span aria-hidden="true">⚠️</span>
+            <p>Couldn't load the 3D model.</p>
+            <p class="hint" id="fmViewerErrorDetail"></p>
+            <a class="settings-btn" id="fmDownloadGlbBtn" href="#" download="figure.glb">
+              ↓ Download GLB
+            </a>
+          </div>
+
+        </div>
+
+        <!-- Print Report (hidden until ready) -->
+        <div class="fm-report-card hidden" id="fmReportCard">
+          <div class="fm-report-header">
+            <span class="fm-report-icon" aria-hidden="true">🖨️</span>
+            <h3>Print Report</h3>
+            <span class="fm-filament-tag hidden" id="fmFilamentTag">PLA</span>
+          </div>
+          <p class="fm-report-text" id="fmReportText"></p>
+          <div class="fm-report-actions">
+            <a
+              class="settings-btn hidden"
+              id="fmDownloadStlBtn"
+              href="#"
+              download="figure.stl"
+              aria-label="Download STL file for 3D printing"
+            >↓ Download STL</a>
+            <a
+              class="settings-btn hidden"
+              id="fmDownloadGlbBtn2"
+              href="#"
+              download="figure.glb"
+              aria-label="Download GLB file"
+            >↓ Download GLB</a>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+
+  </main>
+
+  <script type="module" src="figure_maker.js"></script>
+</body>
+</html>

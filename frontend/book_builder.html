@@ -4,21 +4,30 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Book Builder · MonkeyKing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="book_builder.css">
 </head>
 <body>
 
+  <a href="#builderMain" class="skip-link">Skip to main content</a>
+
   <header>
     <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
       <div class="header-title">
         <span class="title-zh">齐天大圣</span>
         <span class="title-en">MonkeyKing Story Studio</span>
       </div>
-      <nav class="header-nav">
-        <a href="index.html" class="nav-link">Image Studio</a>
-        <a href="book_builder.html" class="nav-link active">Book Builder</a>
-        <a href="gallery.html" class="nav-link">Gallery</a>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
+        <a href="book_builder.html" class="nav-link active">📖 Book Builder</a>
+        <a href="figure_maker.html" class="nav-link">🧩 Figure Maker</a>
+        <a href="gallery.html" class="nav-link">🖼 Gallery</a>
       </nav>
       <div class="server-status">
         <span class="status-dot" id="statusDot"></span>
@@ -27,7 +36,7 @@
     </div>
   </header>
 
-  <main class="builder-main">
+  <main class="builder-main" id="builderMain">
 
     <!-- ── STEP 1: Concept ── -->
     <section class="builder-step" id="step1">
@@ -75,11 +84,11 @@
 
       <div class="decompose-btn-row">
         <button id="decomposeBtn" class="generate-btn">
-          <span id="decomposeLabel">✦ Create Story with Claude</span>
+          <span id="decomposeLabel">✦ Generate Story</span>
           <div class="spinner hidden" id="decomposeSpinner"></div>
         </button>
         <button id="autoGenBtn" class="generate-btn auto-gen-btn">
-          <span id="autoGenLabel">⚡ Create Story + Generate Images</span>
+          <span id="autoGenLabel">⚡ Generate Story and Pictures</span>
           <div class="spinner hidden" id="autoGenSpinner"></div>
         </button>
       </div>
@@ -130,7 +139,7 @@
     </section>
 
     <!-- ── STEP 3: Generation Queue ── -->
-    <section class="builder-step" id="step3">
+    <section class="builder-step hidden" id="step3">
       <div class="step-header">
         <span class="step-num">③</span>
         <h2>Generate Images</h2>

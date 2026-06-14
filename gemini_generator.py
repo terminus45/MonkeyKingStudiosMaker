@@ -16,14 +16,14 @@ GEMINI_MODELS = [
 ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"]
 
 
-def _client():
+def _client(api_key: Optional[str] = None):
     try:
         from google import genai
     except ImportError:
         raise RuntimeError(
             "google-genai package is not installed. Run: pip install google-genai"
         )
-    key = os.environ.get("GEMINI_API_KEY")
+    key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set in environment")
     return genai.Client(api_key=key)
@@ -45,11 +45,12 @@ def generate(
     aspect_ratio: Optional[str] = None,
     width: int = 512,
     height: int = 512,
+    api_key: Optional[str] = None,
 ) -> Image.Image:
     from google.genai import types as gt
     from google.genai.errors import ClientError
 
-    client = _client()
+    client = _client(api_key)
     full_prompt = f"{content_prompt}, {style_prompt}" if style_prompt else content_prompt
     ar = aspect_ratio if aspect_ratio in ASPECT_RATIOS else _fit_aspect_ratio(width, height)
     model_type = next((m["type"] for m in GEMINI_MODELS if m["id"] == model_id), "imagen")

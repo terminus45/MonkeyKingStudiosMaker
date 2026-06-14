@@ -1,0 +1,473 @@
+/* figure_maker.js — ES module */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const API = window.location.origin;
+
+// ── DOM refs ────────────────────────────────────────────────────────────────
+const statusDot            = document.getElementById('statusDot');
+const statusLabel          = document.getElementById('statusLabel');
+
+const fmBoltMascot         = document.getElementById('fmBoltMascot');
+const fmBoltText           = document.getElementById('fmBoltText');
+
+const fmPromptInput        = document.getElementById('fmPromptInput');
+const fmChips              = document.getElementById('fmChips');
+const fmGenerateBtn        = document.getElementById('fmGenerateBtn');
+const fmGenerateLabel      = document.getElementById('fmGenerateLabel');
+const fmSpinner            = document.getElementById('fmSpinner');
+const fmEnhancedPromptBox  = document.getElementById('fmEnhancedPromptBox');
+const fmEnhancedPromptText = document.getElementById('fmEnhancedPromptText');
+const fmErrorMsg           = document.getElementById('fmErrorMsg');
+const fmResetBtn           = document.getElementById('fmResetBtn');
+
+const fmViewerEmpty        = document.getElementById('fmViewerEmpty');
+const fmProgressState      = document.getElementById('fmProgressState');
+const fmStageLabel         = document.getElementById('fmStageLabel');
+const fmProgressBar        = document.getElementById('fmProgressBar');
+const fmProgressFill       = document.getElementById('fmProgressFill');
+const fmProgressPct        = document.getElementById('fmProgressPct');
+
+const fmViewerFrame        = document.getElementById('fmViewerFrame');
+const fmViewer             = document.getElementById('fmViewer');
+const fmViewerHint         = document.getElementById('fmViewerHint');
+const fmViewerError        = document.getElementById('fmViewerError');
+const fmViewerErrorDetail  = document.getElementById('fmViewerErrorDetail');
+const fmDownloadGlbBtn     = document.getElementById('fmDownloadGlbBtn');
+
+const fmReportCard         = document.getElementById('fmReportCard');
+const fmFilamentTag        = document.getElementById('fmFilamentTag');
+const fmReportText         = document.getElementById('fmReportText');
+const fmDownloadStlBtn     = document.getElementById('fmDownloadStlBtn');
+const fmDownloadGlbBtn2    = document.getElementById('fmDownloadGlbBtn2');
+
+// ── Bolt message map ─────────────────────────────────────────────────────────
+const BOLT_MESSAGES = {
+  idle:        'What should we build today?',
+  idleReset:   "Let's make something new! What should it be?",
+  prompting:   'Ooh, great idea! I\'m thinking up the perfect design…',
+  preview:     'Sculpting your shape — almost like magic!',
+  refine:      'Painting it and adding all the details…',
+  downloading: 'Packing it up and bringing it over…',
+  analyzing:   'Checking if it\'s ready to print…',
+  done:        'Ta-da! Here\'s your very own 3D figure! 🎉',
+  error:       'Oops! Something went wobbly. Let\'s try again!',
+};
+
+// ── Stage label map (kid-friendly) ──────────────────────────────────────────
+const STAGE_LABELS = {
+  prompting:   'Dreaming up your idea…',
+  preview:     'Sculpting the shape…',
+  refine:      'Painting it in…',
+  downloading: 'Almost ready…',
+  analyzing:   'Checking the details…',
+};
+
+// ── State ───────────────────────────────────────────────────────────────────
+let _cancelled   = false;
+let _polling     = false;
+let _glbUrl      = null;
+let _stlUrl      = null;
+
+// three.js refs
+let fmRenderer    = null;
+let fmAnimId      = null;
+let fmControls    = null;
+let fmRo          = null;
+let autoRotateTimer = null;
+
+// ── Health check ─────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const res  = await fetch(`${API}/health`);
+    const data = await res.json();
+    statusDot.className    = 'status-dot ok';
+    statusLabel.textContent = `Connected · ${data.loaded_model?.split('/').pop() ?? 'unknown'}`;
+  } catch {
+    statusDot.className    = 'status-dot error';
+    statusLabel.textContent = 'Server offline';
+  }
+}
+
+// ── Bolt mascot ──────────────────────────────────────────────────────────────
+function setBoltMessage(key) {
+  fmBoltText.textContent = BOLT_MESSAGES[key] || BOLT_MESSAGES.idle;
+}
+
+function setBoltBouncing(on) {
+  fmBoltMascot.classList.toggle('bolt-bounce', on);
+}
+
+// ── State machine helpers ─────────────────────────────────────────────────────
+function setGenerating(on) {
+  fmGenerateBtn.disabled = on;
+  fmGenerateBtn.setAttribute('aria-disabled', on ? 'true' : 'false');
+  if (on) {
+    fmGenerateLabel.classList.add('hidden');
+    fmSpinner.classList.remove('hidden');
+  } else {
+    fmGenerateLabel.classList.remove('hidden');
+    fmSpinner.classList.add('hidden');
+  }
+}
+
+function setInputsDisabled(on) {
+  fmPromptInput.disabled = on;
+  fmChips.querySelectorAll('.preset').forEach(btn => { btn.disabled = on; });
+}
+
+function showEmpty() {
+  fmViewerEmpty.classList.remove('hidden');
+  fmProgressState.classList.add('hidden');
+  fmViewerFrame.classList.add('hidden');
+}
+
+function showProgress() {
+  fmViewerEmpty.classList.add('hidden');
+  fmProgressState.classList.remove('hidden');
+  fmViewerFrame.classList.add('hidden');
+}
+
+function showViewer() {
+  fmViewerEmpty.classList.add('hidden');
+  fmProgressState.classList.add('hidden');
+  fmViewerFrame.classList.remove('hidden');
+}
+
+function setProgress(pct) {
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  fmProgressFill.style.width = `${clamped}%`;
+  fmProgressBar.setAttribute('aria-valuenow', clamped);
+  fmProgressPct.textContent  = `${clamped}%`;
+}
+
+function setStageLabel(stage) {
+  fmStageLabel.textContent = STAGE_LABELS[stage] || 'Working…';
+}
+
+function showError(msg) {
+  fmErrorMsg.textContent = msg;
+  fmErrorMsg.classList.remove('hidden');
+}
+
+function hideError() {
+  fmErrorMsg.textContent = '';
+  fmErrorMsg.classList.add('hidden');
+}
+
+// ── Chip behaviour ────────────────────────────────────────────────────────────
+fmChips.addEventListener('click', e => {
+  const btn = e.target.closest('.preset');
+  if (!btn) return;
+
+  const prompt = btn.dataset.prompt;
+  const isActive = btn.classList.contains('active');
+
+  // Deactivate all chips
+  fmChips.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+
+  if (isActive) {
+    // Clicking active chip toggles off
+    fmPromptInput.value = '';
+  } else {
+    btn.classList.add('active');
+    fmPromptInput.value = prompt;
+  }
+});
+
+// Typing in textarea deactivates chips
+fmPromptInput.addEventListener('input', () => {
+  fmChips.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+});
+
+// ── Generate ─────────────────────────────────────────────────────────────────
+fmGenerateBtn.addEventListener('click', async () => {
+  const prompt = fmPromptInput.value.trim();
+  if (!prompt) {
+    fmPromptInput.style.borderColor = 'var(--terracotta)';
+    fmPromptInput.focus();
+    setTimeout(() => { fmPromptInput.style.borderColor = ''; }, 1500);
+    return;
+  }
+
+  hideError();
+  _cancelled = false;
+
+  // Enter generating state
+  setGenerating(true);
+  setInputsDisabled(true);
+  showProgress();
+  setProgress(0);
+  setBoltBouncing(true);
+  setBoltMessage('prompting');
+  fmResetBtn.classList.add('hidden');
+  fmEnhancedPromptBox.classList.add('hidden');
+  fmReportCard.classList.add('hidden');
+  teardownViewer();
+
+  let jobId;
+  try {
+    const res = await fetch(`${API}/figure/generate`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ prompt }),
+    });
+
+    if (!res.ok) {
+      const detail = (await res.json()).detail || `Server error ${res.status}`;
+      if (res.status === 503) {
+        throw new Error(`Meshy or Anthropic key missing — ask a grown-up to set it in Settings (⚙). Detail: ${detail}`);
+      }
+      throw new Error(detail);
+    }
+
+    const data = await res.json();
+    jobId = data.job_id;
+  } catch (err) {
+    enterErrorState(err.message);
+    return;
+  }
+
+  // Poll loop
+  await pollStatus(jobId);
+});
+
+async function pollStatus(jobId) {
+  if (_cancelled) return;
+
+  try {
+    const res = await fetch(`${API}/figure/status/${jobId}`);
+    if (!res.ok) throw new Error((await res.json()).detail || `Error ${res.status}`);
+    const data = await res.json();
+
+    if (_cancelled) return;
+
+    const { stage, progress, enhanced_prompt, glb_filename, report, filament, error } = data;
+
+    // Update bolt
+    if (BOLT_MESSAGES[stage]) setBoltMessage(stage);
+
+    // Update stage label + progress bar
+    setStageLabel(stage);
+    if (typeof progress === 'number') setProgress(progress);
+
+    // Enhanced prompt reveal
+    if (enhanced_prompt && fmEnhancedPromptBox.classList.contains('hidden')) {
+      fmEnhancedPromptText.textContent = enhanced_prompt;
+      fmEnhancedPromptBox.classList.remove('hidden');
+    }
+
+    if (stage === 'done') {
+      // Success!
+      _glbUrl = glb_filename ? `${API}/figure/model/${glb_filename}` : null;
+      setProgress(100);
+      setBoltBouncing(false);
+      setBoltMessage('done');
+      enterReadyState({ glb_filename, report, filament });
+      return;
+    }
+
+    if (stage === 'error') {
+      throw new Error(error || 'Generation failed.');
+    }
+
+    // Still in progress — poll again
+    await new Promise(r => setTimeout(r, 2500));
+    if (!_cancelled) await pollStatus(jobId);
+
+  } catch (err) {
+    if (!_cancelled) enterErrorState(err.message);
+  }
+}
+
+function enterReadyState({ glb_filename, report, filament }) {
+  setGenerating(false);
+  setInputsDisabled(false);
+  showViewer();
+
+  fmResetBtn.classList.remove('hidden');
+
+  // Show report card
+  if (report || filament) {
+    fmReportCard.classList.remove('hidden');
+    fmReportText.textContent = report || '';
+
+    if (filament) {
+      fmFilamentTag.textContent = filament;
+      fmFilamentTag.classList.remove('hidden');
+      fmFilamentTag.setAttribute('aria-label', `Suggested filament: ${filament}`);
+    } else {
+      fmFilamentTag.classList.add('hidden');
+    }
+  }
+
+  // Download buttons
+  const glbUrl = glb_filename ? `${API}/figure/model/${glb_filename}` : null;
+  if (glbUrl) {
+    fmDownloadGlbBtn2.href     = glbUrl;
+    fmDownloadGlbBtn2.download = glb_filename;
+    fmDownloadGlbBtn2.classList.remove('hidden');
+
+    fmDownloadGlbBtn.href     = glbUrl;
+    fmDownloadGlbBtn.download = glb_filename;
+
+    // Load 3D model
+    mountViewer(glbUrl);
+  }
+  // STL is not returned by current backend but keep the element for future use
+  fmDownloadStlBtn.classList.add('hidden');
+}
+
+function enterErrorState(msg) {
+  _polling = false;
+  setBoltBouncing(false);
+  setBoltMessage('error');
+  setGenerating(false);
+  setInputsDisabled(false);
+  showEmpty();
+  showError(msg);
+  fmResetBtn.classList.remove('hidden');
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+fmResetBtn.addEventListener('click', () => {
+  _cancelled = true;
+  _glbUrl    = null;
+  _stlUrl    = null;
+
+  fmPromptInput.value = '';
+  fmChips.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+
+  hideError();
+  fmEnhancedPromptBox.classList.add('hidden');
+  fmReportCard.classList.add('hidden');
+  fmResetBtn.classList.add('hidden');
+
+  setGenerating(false);
+  setInputsDisabled(false);
+  setProgress(0);
+
+  teardownViewer();
+  showEmpty();
+
+  setBoltBouncing(false);
+  setBoltMessage('idleReset');
+});
+
+// ── three.js viewer ───────────────────────────────────────────────────────────
+function teardownViewer() {
+  if (autoRotateTimer) { clearTimeout(autoRotateTimer); autoRotateTimer = null; }
+  if (fmAnimId)        { cancelAnimationFrame(fmAnimId); fmAnimId = null; }
+  if (fmRo)            { fmRo.disconnect(); fmRo = null; }
+  if (fmControls)      { fmControls.dispose(); fmControls = null; }
+  if (fmRenderer)      { fmRenderer.dispose(); fmRenderer = null; }
+  while (fmViewer.firstChild) fmViewer.removeChild(fmViewer.firstChild);
+  fmViewerError.classList.add('hidden');
+}
+
+function mountViewer(glbUrl) {
+  teardownViewer();
+
+  const container = fmViewer;
+  const w = container.clientWidth  || 600;
+  const h = container.clientHeight || 600;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const canvas = renderer.domElement;
+  canvas.setAttribute('aria-hidden', 'true');
+  container.appendChild(canvas);
+  fmRenderer = renderer;
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 1000);
+  camera.position.set(0, 0, 3);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  dirLight.position.set(5, 10, 5);
+  scene.add(dirLight);
+
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping   = true;
+  controls.dampingFactor   = 0.05;
+  controls.autoRotate      = true;
+  controls.autoRotateSpeed = 1.5;
+  fmControls = controls;
+
+  // Pause auto-rotate on interaction, resume after 10s
+  controls.addEventListener('start', () => {
+    controls.autoRotate = false;
+    // Fade hint on first interaction
+    fmViewerHint.classList.add('hint-faded');
+    if (autoRotateTimer) clearTimeout(autoRotateTimer);
+    autoRotateTimer = setTimeout(() => { if (fmControls) fmControls.autoRotate = true; }, 10000);
+  });
+
+  const loader = new GLTFLoader();
+  try {
+    loader.load(
+      glbUrl,
+      gltf => {
+        const model = gltf.scene;
+        scene.add(model);
+
+        // Auto-fit camera to bounding sphere
+        const box    = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        const sphere = new THREE.Sphere();
+        box.getBoundingSphere(sphere);
+        box.getCenter(center);
+        model.position.sub(center);
+        camera.position.set(0, sphere.radius * 0.3, sphere.radius * 2.5);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // Update aria-label with prompt
+        const promptVal = fmPromptInput.value.trim();
+        if (promptVal) {
+          fmViewer.setAttribute('aria-label', `3D model of ${promptVal} — drag to rotate, scroll to zoom`);
+        }
+      },
+      undefined,
+      err => {
+        console.error('GLTFLoader error', err);
+        fmViewerErrorDetail.textContent = String(err.message || err);
+        fmViewerError.classList.remove('hidden');
+      }
+    );
+  } catch (err) {
+    fmViewerErrorDetail.textContent = String(err.message || err);
+    fmViewerError.classList.remove('hidden');
+  }
+
+  // ResizeObserver
+  const ro = new ResizeObserver(() => {
+    if (!fmRenderer) return;
+    const nw = container.clientWidth;
+    const nh = container.clientHeight;
+    fmRenderer.setSize(nw, nh);
+    camera.aspect = nw / nh;
+    camera.updateProjectionMatrix();
+  });
+  ro.observe(container);
+  fmRo = ro;
+
+  function animate() {
+    fmAnimId = requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+(async () => {
+  await checkHealth();
+})();
+
+setInterval(checkHealth, 30_000);
