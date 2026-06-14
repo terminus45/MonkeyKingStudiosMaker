@@ -116,8 +116,7 @@ const gallerySpinner  = document.getElementById('gallerySpinner');
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
 
-// Step 1 style presets (shared-inputs-inline section, id="stylePresets")
-const step1StylePresets = document.getElementById('stylePresets');
+// (step1StylePresets removed — preset pills deleted from Step 1)
 
 // ── Language selector ──────────────────────────────────────────────────────
 function applyLanguageToUI(code) {
@@ -210,18 +209,6 @@ loraSelect2.addEventListener('change', () => {
 });
 loraScaleEl2.addEventListener('input', () => {
   loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
-});
-
-// ── Style presets (Step 1 shared inputs — stylePresets) ────────────────────
-step1StylePresets.addEventListener('click', e => {
-  const btn = e.target.closest('.preset');
-  if (!btn) return;
-  stylePromptInput.value = btn.dataset.suffix;
-  // Deactivate all presets in step1, activate clicked
-  step1StylePresets.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
-  if (btn.dataset.suffix !== '') btn.classList.add('active');
-  // Patch shared store
-  SharedInputs.patch({ style: stylePromptInput.value });
 });
 
 // ── Step 3 gen style presets ───────────────────────────────────────────────
@@ -1032,19 +1019,9 @@ function splitRow(line, delim) {
 const LS_KEY      = 'monkeyking_bb_state';
 const LANG_KEY    = 'monkeyking_bb_lang';   // preferred language, survives Clear
 
-// Patch the shared store immediately on every input. No debounce: a localStorage
-// write per keystroke is negligible and SharedInputs.patch() no-ops when nothing
-// changed. This guarantees the value is always persisted before the user can
-// navigate away (a debounced write would be lost mid-flight on navigation).
-conceptInput.addEventListener('input', () => {
-  SharedInputs.patch({ story: conceptInput.value });
-});
-characterInput.addEventListener('input', () => {
-  SharedInputs.patch({ character: characterInput.value });
-});
-stylePromptInput.addEventListener('input', () => {
-  SharedInputs.patch({ style: stylePromptInput.value });
-});
+// Shared input listeners are wired in init (after reconciliation) via
+// SharedInputs.bindFields with debounce:0 and populate:false.
+// See wireSharedInputListeners() below.
 
 function saveState() {
   // Always persist the chosen language so it survives a reload even before a story exists.
@@ -1151,29 +1128,25 @@ loadProjectFile.addEventListener('change', async e => {
 
 
 // ── Shared inputs — restore and wire live-sync ─────────────────────────────
+// Simplified restore: just set the three .value fields from the shared store.
+// Called by the reconciliation branches in init (before the live listener is attached).
 function restoreSharedInputs() {
   const s = SharedInputs.read();
   // Set values directly — never dispatch synthetic input events
   conceptInput.value     = s.story;
   characterInput.value   = s.character;
   stylePromptInput.value = s.style;
-
-  // Restore active style preset pill in step 1
-  step1StylePresets.querySelectorAll('.preset').forEach(p => {
-    p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
-  });
 }
 
+// Wire the live listener via bindFields. populate:false because BB populates via
+// its own reconciliation branches (restoreProject/restoreState/restoreSharedInputs).
+// debounce:0 preserves "value persisted before navigation" guarantee.
+// Called AFTER all reconciliation branches complete.
 function wireSharedInputListeners() {
-  // Live cross-tab sync — set .value directly, do NOT trigger input side-effects
-  SharedInputs.onExternalChange(s => {
-    conceptInput.value     = s.story;
-    characterInput.value   = s.character;
-    stylePromptInput.value = s.style;
-    step1StylePresets.querySelectorAll('.preset').forEach(p => {
-      p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
-    });
-  });
+  SharedInputs.bindFields(
+    { character: 'characterInput', story: 'conceptInput', style: 'stylePromptInput' },
+    { debounce: 0, populate: false }
+  );
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

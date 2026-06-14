@@ -22,8 +22,8 @@
         <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </a>
       <div class="header-title">
-        <span class="title-zh">齐天大圣</span>
-        <span class="title-en">MonkeyKing Story Studio</span>
+        <span class="title-zh">🤖</span>
+        <span class="title-en">Monkey King Studios</span>
       </div>
       <nav class="header-nav" aria-label="Main navigation">
         <a href="character_generator.html" class="nav-link active">🎭 Character Generator</a>
@@ -40,78 +40,77 @@
 
   <main class="cg-main" id="cgMain">
 
+    <!-- ═══════════════════════════════════════════════════════════════
+         CANONICAL SHARED INPUTS PANEL — COPY VERBATIM INTO ALL 3 PAGES
+         Substitute {{...}} tokens per the per-tab mapping table.
+         Keep this comment marker so the block is easy to locate.
+         ═══════════════════════════════════════════════════════════════ -->
+    <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
+         style="border-left: 5px solid var(--teal)">
+
+      <div class="step-header">
+        <h2>Your Story</h2>
+        <span class="sync-badge" tabindex="0"
+              title="Editing here updates Character Generator, Book Builder, and Figure Maker"
+              aria-label="Synced across Character Generator, Book Builder, and Figure Maker">
+          <svg class="sync-icon" aria-hidden="true" focusable="false"
+               width="13" height="13" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          Synced across tabs
+        </span>
+      </div>
+
+      <p class="hint shared-tab-hint" id="sharedTabHint">
+        Character Generator uses Character most — Story adds scene context, Style sets the art.
+      </p>
+
+      <!-- CHARACTER DESCRIPTION -->
+      <div class="control-group shared-field-primary" id="cgDescGroup">
+        <label for="cgDescInput">Character Description</label>
+        <textarea
+          id="cgDescInput"
+          rows="3"
+          placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
+          aria-describedby="cgDescHint"
+        ></textarea>
+        <p class="hint" id="cgDescHint">Who is the hero? Describe their look, personality, and any props.</p>
+      </div>
+
+      <!-- STORY PROMPT -->
+      <div class="control-group" id="cgStoryGroup" style="margin-top: .9rem">
+        <label for="cgStoryInput">Story Prompt <span class="hint">(optional — sets scene context)</span></label>
+        <textarea
+          id="cgStoryInput"
+          rows="2"
+          placeholder="A brave monkey king learns to share kindness with the forest…"
+          aria-describedby="cgStoryHint"
+        ></textarea>
+        <p class="hint" id="cgStoryHint">The adventure or scenario your story is about.</p>
+      </div>
+
+      <!-- STYLE PROMPT -->
+      <div class="control-group" id="cgStyleGroup" style="margin-top: .9rem">
+        <label for="cgStyleInput">Style Prompt <span class="hint">(optional)</span></label>
+        <textarea
+          id="cgStyleInput"
+          rows="2"
+          placeholder="Soft watercolor, children's book art, warm pastel tones…"
+          aria-describedby="cgStyleHint"
+        ></textarea>
+        <p class="hint" id="cgStyleHint">The visual art style used across all illustrations.</p>
+      </div>
+
+    </div>
+    <!-- END CANONICAL SHARED INPUTS PANEL -->
+
     <div class="cg-layout">
 
       <!-- LEFT: Controls panel -->
       <aside class="cg-controls-panel" aria-label="Character generation controls">
-
-        <!-- SHARED INPUTS PANEL -->
-        <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
-             style="border-left: 5px solid var(--teal)">
-
-          <div class="step-header">
-            <h2>Your Story</h2>
-            <span class="sync-badge" tabindex="0"
-                  title="Editing here updates Character Generator, Book Builder, and Figure Maker"
-                  aria-label="These fields sync across all three tabs">
-              <svg class="sync-icon" aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-              </svg>
-              Shared across tabs
-            </span>
-          </div>
-
-          <p class="hint shared-tab-hint" id="sharedTabHint">
-            Character Generator mainly uses Character and Style — Story adds optional scene context.
-          </p>
-
-          <!-- CHARACTER DESCRIPTION — PRIMARY emphasis -->
-          <div class="control-group shared-field-primary" id="cgDescGroup">
-            <label for="cgDescInput">Character Description</label>
-            <textarea
-              id="cgDescInput"
-              rows="3"
-              placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
-              aria-describedby="cgDescHint"
-            ></textarea>
-            <p class="hint" id="cgDescHint">Appearance, personality, and any props or outfit details.</p>
-          </div>
-
-          <!-- STORY PROMPT — secondary (new field) -->
-          <div class="control-group" id="cgStoryGroup" style="margin-top: .9rem">
-            <label for="cgStoryInput">Story Prompt <span class="hint">(optional — sets scene context)</span></label>
-            <textarea
-              id="cgStoryInput"
-              rows="2"
-              placeholder="e.g. Standing at the entrance of a magic cave at sunrise…"
-              aria-describedby="cgStoryHint"
-            ></textarea>
-            <p class="hint" id="cgStoryHint">The scenario or setting for the portrait.</p>
-          </div>
-
-          <!-- STYLE PROMPT — PRIMARY emphasis -->
-          <div class="control-group shared-field-primary" id="cgStyleGroup" style="margin-top: .9rem">
-            <label for="cgStyleInput">Style Prompt</label>
-            <textarea
-              id="cgStyleInput"
-              rows="2"
-              placeholder="Soft watercolor, children's book art, warm pastel tones…"
-              aria-describedby="cgStyleHint"
-            ></textarea>
-            <p class="hint" id="cgStyleHint">The visual art style for the portrait.</p>
-            <div class="presets shared-style-presets" id="cgStylePresets"
-                 role="group" aria-label="Style presets" style="margin-top: .4rem">
-              <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
-              <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
-              <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
-              <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
-              <button class="preset" data-suffix="">Clear</button>
-            </div>
-          </div>
-
-        </div>
-        <!-- END SHARED INPUTS PANEL -->
 
         <!-- TAB-SPECIFIC: Gemini model + aspect ratio -->
         <div class="builder-step" id="cgTabControls"

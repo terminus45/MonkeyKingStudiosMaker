@@ -15,7 +15,6 @@ const statusLabel     = document.getElementById('statusLabel');
 const cgDescInput     = document.getElementById('cgDescInput');
 const cgStoryInput    = document.getElementById('cgStoryInput');
 const cgStyleInput    = document.getElementById('cgStyleInput');
-const cgStylePresets  = document.getElementById('cgStylePresets');
 const cgModelSelect   = document.getElementById('cgModelSelect');
 const cgAspectPresets = document.getElementById('cgAspectPresets');
 
@@ -95,28 +94,6 @@ async function loadModels() {
   }
 }
 
-// ── Style preset pills ───────────────────────────────────────────────────────
-cgStylePresets.addEventListener('click', e => {
-  const btn = e.target.closest('.preset');
-  if (!btn) return;
-
-  const suffix = btn.dataset.suffix;
-
-  // Deactivate all
-  cgStylePresets.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
-
-  if (suffix === '') {
-    // "Clear" — empty the textarea, no active pill
-    cgStyleInput.value = '';
-  } else {
-    btn.classList.add('active');
-    cgStyleInput.value = suffix;
-  }
-  // Patch shared store for style
-  SharedInputs.patch({ style: cgStyleInput.value });
-  saveCgDraft();
-});
-
 // ── Aspect ratio pills (single-select) ───────────────────────────────────────
 cgAspectPresets.addEventListener('click', e => {
   const btn = e.target.closest('.ar-btn');
@@ -163,48 +140,10 @@ function restoreCgDraft() {
   } catch { /* corrupted draft */ }
 }
 
-// ── Shared inputs — restore from store, wire live-sync ───────────────────────
-function restoreSharedInputs() {
-  const s = SharedInputs.read();
-  // Set values directly — never dispatch synthetic input events
-  cgDescInput.value  = s.character;
-  cgStoryInput.value = s.story;
-  cgStyleInput.value = s.style;
-
-  // Restore active style preset pill
-  cgStylePresets.querySelectorAll('.preset').forEach(p => {
-    p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
-  });
-}
-
+// ── Shared inputs — unified via SharedInputs.bindFields ──────────────────────
+// CG_FIELD_MAP declared at top of file; populate:true (default), debounce:300
 function wireSharedInputListeners() {
-  let _charTimer = null, _storyTimer = null, _styleTimer = null;
-
-  cgDescInput.addEventListener('input', () => {
-    clearTimeout(_charTimer);
-    _charTimer = setTimeout(() => SharedInputs.patch({ character: cgDescInput.value }), 300);
-  });
-
-  cgStoryInput.addEventListener('input', () => {
-    clearTimeout(_storyTimer);
-    _storyTimer = setTimeout(() => SharedInputs.patch({ story: cgStoryInput.value }), 300);
-  });
-
-  cgStyleInput.addEventListener('input', () => {
-    clearTimeout(_styleTimer);
-    _styleTimer = setTimeout(() => SharedInputs.patch({ style: cgStyleInput.value }), 300);
-  });
-
-  // Live cross-tab sync
-  SharedInputs.onExternalChange(s => {
-    cgDescInput.value  = s.character;
-    cgStoryInput.value = s.story;
-    cgStyleInput.value = s.style;
-    // Re-sync active style preset pill
-    cgStylePresets.querySelectorAll('.preset').forEach(p => {
-      p.classList.toggle('active', p.dataset.suffix !== '' && p.dataset.suffix === s.style);
-    });
-  });
+  SharedInputs.bindFields(CG_FIELD_MAP, { debounce: 300 });
 }
 
 // Debounced save for model/ar changes
@@ -458,13 +397,10 @@ function restoreSession() {
   // select isn't clobbered
   restoreCgDraft();
 
-  // Restore shared inputs (character/story/style) from SharedInputs store
-  restoreSharedInputs();
-
   // Restore any images generated earlier this session
   restoreSession();
 
-  // 4. Wire live-sync listeners
+  // Wire shared input listeners — bindFields populates fields and registers cross-tab sync
   wireSharedInputListeners();
 })();
 

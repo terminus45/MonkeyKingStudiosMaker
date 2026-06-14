@@ -14,6 +14,10 @@
   gap: 2rem;
 }
 
+.cg-main > .shared-inputs-panel {
+  margin-bottom: 1.5rem;
+}
+
 .cg-layout {
   display: grid;
   grid-template-columns: 340px 1fr;

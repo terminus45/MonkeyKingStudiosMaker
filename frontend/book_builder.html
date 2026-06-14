@@ -22,8 +22,8 @@
         <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </a>
       <div class="header-title">
-        <span class="title-zh">齐天大圣</span>
-        <span class="title-en">MonkeyKing Story Studio</span>
+        <span class="title-zh">🤖</span>
+        <span class="title-en">Monkey King Studios</span>
       </div>
       <nav class="header-nav" aria-label="Main navigation">
         <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
@@ -45,78 +45,86 @@
       <div class="step-header">
         <span class="step-num">①</span>
         <h2>Story Concept</h2>
-        <div class="project-actions">
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           CANONICAL SHARED INPUTS PANEL — COPY VERBATIM INTO ALL 3 PAGES
+           Substitute {{...}} tokens per the per-tab mapping table.
+           Keep this comment marker so the block is easy to locate.
+           ═══════════════════════════════════════════════════════════════ -->
+      <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
+           style="border-left: 5px solid var(--teal)">
+
+        <div class="step-header">
+          <h2>Your Story</h2>
+          <span class="sync-badge" tabindex="0"
+                title="Editing here updates Character Generator, Book Builder, and Figure Maker"
+                aria-label="Synced across Character Generator, Book Builder, and Figure Maker">
+            <svg class="sync-icon" aria-hidden="true" focusable="false"
+                 width="13" height="13" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            Synced across tabs
+          </span>
+        </div>
+
+        <p class="hint shared-tab-hint" id="sharedTabHint">
+          Book Builder uses Story most — it drives the whole storybook. Character keeps art consistent across pages.
+        </p>
+
+        <!-- CHARACTER DESCRIPTION -->
+        <div class="control-group" id="sharedCharacterGroup">
+          <label for="characterInput">Character Description</label>
+          <textarea id="characterInput" rows="3"
+            placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
+            aria-describedby="sharedCharacterHint"></textarea>
+          <p class="hint" id="sharedCharacterHint">Who is the hero? Describe their look, personality, and any props.</p>
+        </div>
+
+        <!-- STORY PROMPT -->
+        <div class="control-group shared-field-primary" id="sharedStoryGroup" style="margin-top: .9rem">
+          <label for="conceptInput">Story Prompt</label>
+          <textarea id="conceptInput" rows="4"
+            placeholder="A brave monkey king learns to share kindness with the forest…"
+            aria-describedby="sharedStoryHint"></textarea>
+          <p class="hint" id="sharedStoryHint">The adventure or scenario your story is about.</p>
+        </div>
+
+        <!-- STYLE PROMPT -->
+        <div class="control-group" id="sharedStyleGroup" style="margin-top: .9rem">
+          <label for="stylePromptInput">Style Prompt <span class="hint">(applied to all illustrations)</span></label>
+          <textarea id="stylePromptInput" rows="2"
+            placeholder="Soft watercolor, children's book art, warm pastel tones…"
+            aria-describedby="sharedStyleHint"></textarea>
+          <p class="hint" id="sharedStyleHint">The visual art style used across all illustrations.</p>
+        </div>
+
+      </div>
+      <!-- END CANONICAL SHARED INPUTS PANEL -->
+
+      <!-- BB Tab Controls: Language toggle + project actions -->
+      <div class="bb-tab-controls builder-step" style="border-left: 5px solid var(--mustard); margin-top: 1rem">
+
+        <div class="control-group">
+          <label>Language</label>
+          <div class="lang-toggle" id="langToggle">
+            <button class="lang-btn active" data-lang="zh">中文</button>
+            <button class="lang-btn"        data-lang="ja">日本語</button>
+            <button class="lang-btn"        data-lang="ko">한국어</button>
+          </div>
+        </div>
+
+        <div class="project-actions" style="margin-top: .75rem">
           <button id="saveProjectBtn" class="project-btn" disabled>↓ Save Project</button>
           <label class="project-btn" for="loadProjectFile">↑ Load Project</label>
           <input type="file" id="loadProjectFile" accept=".json" style="display:none">
           <button id="clearProjectBtn" class="project-btn danger-btn">✕ Clear</button>
         </div>
-      </div>
-
-      <div class="control-group">
-        <label>Language</label>
-        <div class="lang-toggle" id="langToggle">
-          <button class="lang-btn active" data-lang="zh">中文</button>
-          <button class="lang-btn"        data-lang="ja">日本語</button>
-          <button class="lang-btn"        data-lang="ko">한국어</button>
-        </div>
-      </div>
-
-      <!-- SHARED INPUTS (inline — no nested card, just spacing wrapper) -->
-      <div class="shared-inputs-inline" id="sharedInputsPanel" style="margin-top: .75rem">
-
-        <p class="hint shared-tab-hint" id="sharedTabHint">
-          Book Builder mainly uses Story and Character — Style applies to all illustrations.
-        </p>
-
-        <div class="sync-badge-row">
-          <span class="sync-badge" tabindex="0"
-                title="Editing here updates Character Generator, Book Builder, and Figure Maker"
-                aria-label="These fields sync across all three tabs">
-            <svg class="sync-icon" aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-            Shared across tabs
-          </span>
-        </div>
-
-        <!-- STORY PROMPT — PRIMARY emphasis (existing conceptInput) -->
-        <div class="control-group shared-field-primary" id="sharedStoryGroup" style="margin-top: .6rem">
-          <label for="conceptInput">Story Prompt</label>
-          <textarea id="conceptInput" rows="4"
-            placeholder="Sun Wukong learns to share with the forest animals — a tale about kindness…"
-            aria-describedby="sharedStoryHint"></textarea>
-          <p class="hint" id="sharedStoryHint">The concept, adventure, or scenario your storybook is about.</p>
-        </div>
-
-        <!-- CHARACTER DESCRIPTION — PRIMARY emphasis (new field) -->
-        <div class="control-group shared-field-primary" id="sharedCharacterGroup" style="margin-top: .9rem">
-          <label for="characterInput">Character Description</label>
-          <textarea id="characterInput" rows="3"
-            placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
-            aria-describedby="sharedCharacterHint"></textarea>
-          <p class="hint" id="sharedCharacterHint">Who is the main character? Appearance, personality, key props. Used to keep art consistent across all pages.</p>
-        </div>
-
-        <!-- STYLE PROMPT — secondary (existing stylePromptInput) -->
-        <div class="control-group" id="sharedStyleGroup" style="margin-top: .9rem">
-          <label for="stylePromptInput">Style Prompt <span class="hint">(applied to all illustrations)</span></label>
-          <textarea id="stylePromptInput" rows="2"
-            placeholder="Describe the visual style for all illustrations…"
-            aria-describedby="sharedStyleHint"></textarea>
-          <p class="hint" id="sharedStyleHint">The art style used for every page image.</p>
-          <div class="presets shared-style-presets" id="stylePresets" role="group" aria-label="Style presets" style="margin-top:.4rem">
-            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
-            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
-            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
-            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
-            <button class="preset" data-suffix="">Clear</button>
-          </div>
-        </div>
 
       </div>
-      <!-- END SHARED INPUTS (inline) -->
 
       <div class="decompose-btn-row">
         <button id="decomposeBtn" class="generate-btn">

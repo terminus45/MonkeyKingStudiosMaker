@@ -13,79 +13,10 @@
   gap: 1.5rem;
 }
 
-/* ── Two-column layout ── */
-.fm-layout {
-  display: grid;
-  grid-template-columns: 7fr 4fr;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-/* Mobile: single column, controls on top */
-@media (max-width: 700px) {
-  .fm-layout {
-    grid-template-columns: 1fr;
-  }
-  .fm-controls-panel { order: -1; }
-}
-
-/* ── Mascot zone ── */
-.fm-mascot-zone {
+/* Build button + feedback block (full width, directly below the inputs) */
+.fm-actions {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: .75rem 1rem;
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.10);
-  border-left: 3px solid #ff6b35;
-  border-radius: var(--radius);
-}
-
-.bolt-mascot {
-  font-size: 2.5rem;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.bolt-mascot.bolt-bounce {
-  animation: boltBounce 0.6s ease infinite alternate;
-}
-@keyframes boltBounce {
-  from { transform: translateY(0); }
-  to   { transform: translateY(-5px); }
-}
-
-.bolt-bubble {
-  flex: 1;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #ffffff;
-  line-height: 1.4;
-}
-
-/* ── Controls panel (sticky right column) ── */
-.fm-controls-panel {
-  position: sticky;
-  top: 4rem; /* clears header */
-}
-@media (max-width: 700px) {
-  .fm-controls-panel { position: static; }
-}
-
-.fm-controls-card {
-  background: #0f1129;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.5rem;
-  /* border-left set inline on the element */
-}
-
-.fm-controls-header {
-  margin-bottom: 1.1rem;
-}
-.fm-controls-header h2 {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--ink);
+  flex-direction: column;
 }
 
 /* ── Enhanced prompt reveal ── */
@@ -134,6 +65,9 @@
   text-align: center;
   padding: 3rem 2rem;
   min-height: 360px;
+  /* match the viewer frame's side gutters so nothing shifts on state change */
+  margin-left: 50px;
+  margin-right: 50px;
 }
 .fm-viewer-empty-icon {
   font-size: 3.5rem;
@@ -154,6 +88,9 @@
   border-radius: var(--radius);
   min-height: 360px;
   justify-content: center;
+  /* match the viewer frame's side gutters so nothing shifts on state change */
+  margin-left: 50px;
+  margin-right: 50px;
 }
 
 .fm-stage-label {
@@ -192,23 +129,13 @@
   position: relative;
   overflow: hidden;
 
-  /* Mobile sizing */
-  height: 60svh;
-  min-height: 360px;
-  max-height: 560px;
-}
+  /* Height clamped between 460px and 600px */
+  height: clamp(460px, 60svh, 600px);
 
-/* Desktop — taller */
-@media (min-width: 700px) {
-  .fm-viewer-frame {
-    height: 600px;
-    max-height: none;
-  }
-}
-@media (min-width: 1100px) {
-  .fm-viewer-frame {
-    height: 680px;
-  }
+  /* Side gutters so the page can be scrolled past the 3D viewer
+     (the viewer captures wheel/touch to orbit & zoom). */
+  margin-left: 50px;
+  margin-right: 50px;
 }
 
 /* Viewer controls hint overlay */
@@ -300,7 +227,6 @@
 
 /* ── Reduced-motion overrides ── */
 @media (prefers-reduced-motion: reduce) {
-  .bolt-mascot.bolt-bounce { animation: none; }
   .fm-progress-fill { transition: none; }
   .fm-viewer-hint { transition: none; }
 }

@@ -472,20 +472,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-left-width: 3px;
 }
 
-/* ── Book Builder inline shared inputs (no nested card) ── */
-.shared-inputs-inline {
-  display: flex;
-  flex-direction: column;
-}
-.sync-badge-row {
-  display: flex;
-  margin-bottom: .5rem;
-}
-/* When sync-badge is in badge-row (BB), it should not push with margin-left:auto */
-.sync-badge-row .sync-badge {
-  margin-left: 0;
-}
-
 /* ── Mobile reflow for shared components ── */
 @media (max-width: 700px) {
   .sync-badge {

@@ -36,6 +36,10 @@
 /* Remove per-step left border coloring — single uniform border */
 #step1, #step2, #step3, #step4 { border-left: 1px solid rgba(255,255,255,.10); }
 
+/* BB tab controls card (language + project actions): visual treatment comes from
+   .builder-step; the mustard left border is set inline on the element to match
+   the cgTabControls/fmTabControls pattern. */
+
 .project-actions {
   margin-left: auto;
   display: flex;
