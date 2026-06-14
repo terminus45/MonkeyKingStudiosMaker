@@ -187,7 +187,56 @@
         <p class="cg-error hidden" id="settingsStatusMsg" role="status" aria-live="polite"></p>
       </div>
 
-    </div><!-- /.settings-card -->
+    </div><!-- /.settings-card (API Keys) -->
+
+    <!-- Generation Settings card -->
+    <div class="settings-card" style="margin-top: 1.5rem">
+
+      <div class="settings-card-header">
+        <h2>Generation Settings</h2>
+        <p class="settings-card-sub">Preferences are saved locally in your browser.</p>
+      </div>
+
+      <div class="settings-key-list">
+
+        <!-- Gemini model row -->
+        <div class="settings-key-row">
+          <div class="settings-key-label-group">
+            <label class="settings-key-label" for="settingsCgModel">Gemini Model</label>
+            <span class="settings-key-hint">Default model for the Character Generator</span>
+          </div>
+          <div class="settings-model-select-group">
+            <select id="settingsCgModel" aria-label="Gemini model for Character Generator">
+              <option value="imagen-4.0-generate-001">Imagen 4</option>
+              <option value="imagen-4.0-fast-generate-001">Imagen 4 Fast</option>
+              <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra</option>
+              <option value="gemini-2.5-flash-image">Gemini 2.5 Flash</option>
+            </select>
+            <span class="settings-status-chip" id="settingsCgModelStatus" data-state="unknown" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <!-- Aspect ratio row -->
+        <div class="settings-key-row">
+          <div class="settings-key-label-group">
+            <label class="settings-key-label" for="settingsCgAspect">Aspect Ratio</label>
+            <span class="settings-key-hint">Shape of the generated portrait</span>
+          </div>
+          <div class="settings-model-select-group">
+            <select id="settingsCgAspect" aria-label="Aspect ratio for Character Generator">
+              <option value="1:1">Square (1:1)</option>
+              <option value="3:4" selected>Portrait (3:4)</option>
+              <option value="4:3">Landscape (4:3)</option>
+              <option value="9:16">Tall (9:16)</option>
+              <option value="16:9">Wide (16:9)</option>
+            </select>
+            <span class="settings-status-chip" id="settingsCgAspectStatus" data-state="unknown" aria-live="polite"></span>
+          </div>
+        </div>
+
+      </div><!-- /.settings-key-list -->
+
+    </div><!-- /.settings-card (Generation Settings) -->
 
   </main>
 

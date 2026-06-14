@@ -4,12 +4,16 @@
 const API = window.location.origin;
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
-const statusDot       = document.getElementById('statusDot');
-const statusLabel     = document.getElementById('statusLabel');
-const settingsSaveAll = document.getElementById('settingsSaveAll');
-const settingsSaveLabel = document.getElementById('settingsSaveLabel');
-const settingsSpinner = document.getElementById('settingsSpinner');
-const settingsStatusMsg = document.getElementById('settingsStatusMsg');
+const statusDot          = document.getElementById('statusDot');
+const statusLabel        = document.getElementById('statusLabel');
+const settingsSaveAll    = document.getElementById('settingsSaveAll');
+const settingsSaveLabel  = document.getElementById('settingsSaveLabel');
+const settingsSpinner    = document.getElementById('settingsSpinner');
+const settingsStatusMsg  = document.getElementById('settingsStatusMsg');
+const settingsCgModel    = document.getElementById('settingsCgModel');
+const settingsCgModelStatus = document.getElementById('settingsCgModelStatus');
+const settingsCgAspect   = document.getElementById('settingsCgAspect');
+const settingsCgAspectStatus = document.getElementById('settingsCgAspectStatus');
 
 // Key row configuration
 const KEY_ROWS = [
@@ -191,10 +195,116 @@ document.querySelectorAll('.settings-clear-btn').forEach(btn => {
   });
 });
 
+// ── Gemini model select — Generation Settings ─────────────────────────────────
+const CG_DRAFT_KEY = 'monkeyking_cg_draft';
+
+async function loadGeminiModels() {
+  try {
+    const res = await fetch(`${API}/gemini/models`);
+    if (!res.ok) return; // leave hardcoded fallback options in place
+    const data = await res.json();
+    const models = data.models || [];
+    if (models.length === 0) return;
+
+    // Rebuild the select with API data
+    settingsCgModel.innerHTML = '';
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      settingsCgModel.appendChild(opt);
+    });
+
+    // Default to first imagen model; restore saved draft value if available
+    const imagenOpt = models.find(m => m.type === 'imagen');
+    if (imagenOpt) settingsCgModel.value = imagenOpt.id;
+
+    // Restore from draft — overrides the default if a saved value matches
+    try {
+      const raw = localStorage.getItem(CG_DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft.model) {
+          settingsCgModel.value = draft.model;
+          // If the saved value didn't match any option, fall back to the default
+          if (settingsCgModel.value !== draft.model && imagenOpt) {
+            settingsCgModel.value = imagenOpt.id;
+          }
+        }
+      }
+    } catch { /* corrupted draft */ }
+  } catch {
+    // Leave hardcoded options in place — silently ignore (matches CG behavior)
+  }
+}
+
+let _modelSavedTimer = null;
+
+function showModelSavedChip() {
+  settingsCgModelStatus.dataset.state = 'set-config';
+  settingsCgModelStatus.textContent   = 'Saved';
+  if (_modelSavedTimer) clearTimeout(_modelSavedTimer);
+  _modelSavedTimer = setTimeout(() => {
+    settingsCgModelStatus.dataset.state = 'unknown';
+    settingsCgModelStatus.textContent   = '';
+  }, 2000);
+}
+
+// Persist model selection to the shared draft (read-merge-write preserving ar)
+settingsCgModel.addEventListener('change', () => {
+  try {
+    const raw   = localStorage.getItem(CG_DRAFT_KEY);
+    const draft = raw ? JSON.parse(raw) : {};
+    draft.model = settingsCgModel.value;
+    localStorage.setItem(CG_DRAFT_KEY, JSON.stringify(draft));
+  } catch { /* quota / private-mode */ }
+  showModelSavedChip();
+});
+
+// ── Aspect ratio select — Generation Settings ─────────────────────────────────
+let _aspectSavedTimer = null;
+
+function showAspectSavedChip() {
+  settingsCgAspectStatus.dataset.state = 'set-config';
+  settingsCgAspectStatus.textContent   = 'Saved';
+  if (_aspectSavedTimer) clearTimeout(_aspectSavedTimer);
+  _aspectSavedTimer = setTimeout(() => {
+    settingsCgAspectStatus.dataset.state = 'unknown';
+    settingsCgAspectStatus.textContent   = '';
+  }, 2000);
+}
+
+// Restore the saved aspect ratio on load (default 3:4 from the HTML stays if none).
+function restoreAspect() {
+  try {
+    const raw = localStorage.getItem(CG_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (draft.ar) {
+      settingsCgAspect.value = draft.ar;
+      // If the saved value didn't match any option, fall back to the default
+      if (settingsCgAspect.value !== draft.ar) settingsCgAspect.value = '3:4';
+    }
+  } catch { /* corrupted draft */ }
+}
+
+// Persist aspect selection to the shared draft (read-merge-write preserving model)
+settingsCgAspect.addEventListener('change', () => {
+  try {
+    const raw   = localStorage.getItem(CG_DRAFT_KEY);
+    const draft = raw ? JSON.parse(raw) : {};
+    draft.ar = settingsCgAspect.value;
+    localStorage.setItem(CG_DRAFT_KEY, JSON.stringify(draft));
+  } catch { /* quota / private-mode */ }
+  showAspectSavedChip();
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
   await loadKeys();
+  await loadGeminiModels();
+  restoreAspect();
 })();
 
 setInterval(checkHealth, 30_000);

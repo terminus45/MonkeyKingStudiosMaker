@@ -107,110 +107,71 @@
     </div>
     <!-- END CANONICAL SHARED INPUTS PANEL -->
 
-    <div class="cg-layout">
+    <!-- Model + Aspect Ratio now live on the Settings page (Generation Settings) -->
 
-      <!-- LEFT: Controls panel -->
-      <aside class="cg-controls-panel" aria-label="Character generation controls">
+    <!-- GENERATE BUTTON + INLINE ERROR -->
+    <div class="cg-actions">
+      <button
+        class="generate-btn"
+        id="cgGenerateBtn"
+        style="width: 100%"
+        aria-live="polite"
+      >
+        <span id="cgGenerateLabel">🎭 Generate Character</span>
+        <div class="spinner hidden" id="cgSpinner" aria-hidden="true"></div>
+      </button>
 
-        <!-- TAB-SPECIFIC: Gemini model + aspect ratio -->
-        <div class="builder-step" id="cgTabControls"
-             style="border-left: 5px solid var(--mustard); margin-top: 1rem">
-
-          <div class="control-group" id="cgGeminiGroup">
-            <div class="gemini-options-row">
-
-              <div class="gemini-opt">
-                <label for="cgModelSelect">Model</label>
-                <select id="cgModelSelect" aria-label="Gemini model">
-                  <option value="imagen-4.0-generate-001">Imagen 4</option>
-                  <option value="imagen-4.0-fast-generate-001">Imagen 4 Fast</option>
-                  <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra</option>
-                  <option value="gemini-2.5-flash-image">Gemini 2.5 Flash</option>
-                </select>
-              </div>
-
-              <div class="gemini-opt">
-                <label>Aspect Ratio</label>
-                <div class="presets" id="cgAspectPresets" role="group" aria-label="Aspect ratio">
-                  <button class="preset ar-btn" data-ar="1:1">1:1</button>
-                  <button class="preset ar-btn active" data-ar="3:4">3:4</button>
-                  <button class="preset ar-btn" data-ar="4:3">4:3</button>
-                  <button class="preset ar-btn" data-ar="9:16">9:16</button>
-                  <button class="preset ar-btn" data-ar="16:9">16:9</button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-        </div>
-
-        <!-- GENERATE BUTTON -->
-        <button
-          class="generate-btn"
-          id="cgGenerateBtn"
-          style="width: 100%; margin-top: 1rem"
-          aria-live="polite"
-        >
-          <span id="cgGenerateLabel">🎭 Generate Character</span>
-          <div class="spinner hidden" id="cgSpinner" aria-hidden="true"></div>
-        </button>
-
-        <!-- INLINE ERROR (controls panel) -->
-        <p class="cg-error hidden" id="cgErrorMsg" role="alert" aria-live="assertive"></p>
-
-      </aside>
-
-      <!-- RIGHT: Result area -->
-      <section class="cg-result-area" aria-label="Generated character portrait">
-
-        <!-- IMAGE FRAME -->
-        <div class="cg-image-frame" id="cgImageFrame" aria-live="polite">
-
-          <!-- EMPTY STATE (default) -->
-          <div class="cg-empty-state" id="cgEmptyState" aria-hidden="false">
-            <span class="cg-empty-icon" aria-hidden="true">🎭</span>
-            <p>Your character portrait will appear here.</p>
-            <p class="hint">Describe your hero and hit Generate.</p>
-          </div>
-
-          <!-- LOADING STATE (hidden until generating) -->
-          <div class="cg-loading-state hidden" id="cgLoadingState" aria-hidden="true" aria-label="Generating portrait…">
-            <div class="spinner cg-big-spinner" aria-hidden="true"></div>
-            <p>Generating your character…</p>
-          </div>
-
-          <!-- SUCCESS STATE (hidden until image ready) -->
-          <img
-            class="cg-portrait hidden"
-            id="cgPortraitImg"
-            src=""
-            alt=""
-            aria-hidden="true"
-          >
-
-        </div>
-
-        <!-- ACTION ROW (hidden until image ready) -->
-        <div class="cg-action-row hidden" id="cgActionRow">
-          <a
-            class="settings-btn"
-            id="cgDownloadBtn"
-            href="#"
-            download="character-portrait.png"
-            aria-label="Download portrait image"
-          >↓ Download</a>
-
-          <button
-            class="settings-btn"
-            id="cgUseAsCoverBtn"
-            aria-label="Copy filename to clipboard for use as book cover"
-          >📖 Use as Book Cover</button>
-        </div>
-
-      </section>
-
+      <p class="cg-error hidden" id="cgErrorMsg" role="alert" aria-live="assertive"></p>
     </div>
+
+    <!-- RESULT AREA -->
+    <section class="cg-result-area" aria-label="Generated character portrait">
+
+      <!-- IMAGE FRAME -->
+      <div class="cg-image-frame" id="cgImageFrame" aria-live="polite">
+
+        <!-- EMPTY STATE (default) -->
+        <div class="cg-empty-state" id="cgEmptyState" aria-hidden="false">
+          <span class="cg-empty-icon" aria-hidden="true">🎭</span>
+          <p>Your character portrait will appear here.</p>
+          <p class="hint">Describe your hero and hit Generate.</p>
+        </div>
+
+        <!-- LOADING STATE (hidden until generating) -->
+        <div class="cg-loading-state hidden" id="cgLoadingState" aria-hidden="true" aria-label="Generating portrait…">
+          <div class="spinner cg-big-spinner" aria-hidden="true"></div>
+          <p>Generating your character…</p>
+        </div>
+
+        <!-- SUCCESS STATE (hidden until image ready) -->
+        <img
+          class="cg-portrait hidden"
+          id="cgPortraitImg"
+          src=""
+          alt=""
+          aria-hidden="true"
+        >
+
+      </div>
+
+      <!-- ACTION ROW (hidden until image ready) -->
+      <div class="cg-action-row hidden" id="cgActionRow">
+        <a
+          class="settings-btn"
+          id="cgDownloadBtn"
+          href="#"
+          download="character-portrait.png"
+          aria-label="Download portrait image"
+        >↓ Download</a>
+
+        <button
+          class="settings-btn"
+          id="cgUseAsCoverBtn"
+          aria-label="Copy filename to clipboard for use as book cover"
+        >📖 Use as Book Cover</button>
+      </div>
+
+    </section>
 
     <!-- BOTTOM: Session thumbnail strip -->
     <section class="cg-strip-section hidden" id="cgStrip" aria-label="Generated portraits this session">

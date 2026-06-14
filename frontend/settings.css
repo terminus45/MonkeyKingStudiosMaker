@@ -198,6 +198,23 @@
 }
 .settings-success-msg.hidden { display: none; }
 
+/* Model select group — used in Generation Settings card.
+   Mirrors .settings-key-input-group but without the password-input overlay buttons. */
+.settings-model-select-group {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-wrap: wrap;
+}
+
+.settings-model-select-group select {
+  /* Inherits base select/textarea styling from style.css */
+  flex: 1;
+  min-width: 200px;
+  max-width: 340px;
+  font-size: .9rem;
+}
+
 /* ── Responsive ── */
 @media (max-width: 600px) {
   .settings-main { padding: 1rem .75rem 3rem; }

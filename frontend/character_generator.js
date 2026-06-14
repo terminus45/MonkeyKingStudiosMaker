@@ -15,8 +15,6 @@ const statusLabel     = document.getElementById('statusLabel');
 const cgDescInput     = document.getElementById('cgDescInput');
 const cgStoryInput    = document.getElementById('cgStoryInput');
 const cgStyleInput    = document.getElementById('cgStyleInput');
-const cgModelSelect   = document.getElementById('cgModelSelect');
-const cgAspectPresets = document.getElementById('cgAspectPresets');
 
 const cgGenerateBtn   = document.getElementById('cgGenerateBtn');
 const cgGenerateLabel = document.getElementById('cgGenerateLabel');
@@ -66,94 +64,16 @@ async function checkHealth() {
   }
 }
 
-// ── Populate model select from API ──────────────────────────────────────────
-async function loadModels() {
-  try {
-    const res  = await fetch(`${API}/gemini/models`);
-    if (!res.ok) return; // leave hardcoded fallback options in place
-    const data = await res.json();
-    const models = data.models || [];
-    if (models.length === 0) return;
-
-    // Rebuild the select with API data
-    cgModelSelect.innerHTML = '';
-    models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.name || m.id;
-      cgModelSelect.appendChild(opt);
-    });
-
-    // Default to first imagen model, then fall back to index 0
-    const imagenOpt = models.find(m => m.type === 'imagen');
-    if (imagenOpt) {
-      cgModelSelect.value = imagenOpt.id;
-    }
-  } catch {
-    // Leave hardcoded options in place — silently ignore
-  }
-}
-
-// ── Aspect ratio pills (single-select) ───────────────────────────────────────
-cgAspectPresets.addEventListener('click', e => {
-  const btn = e.target.closest('.ar-btn');
-  if (!btn) return;
-  cgAspectPresets.querySelectorAll('.ar-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  saveCgDraft();
-});
-
-function getSelectedAR() {
-  const active = cgAspectPresets.querySelector('.ar-btn.active');
-  return active ? active.dataset.ar : '3:4';
-}
-
-// ── Draft persistence — keep only non-shared fields (model/ar) ───────────────
+// ── Generation preferences ───────────────────────────────────────────────────
+// Model and aspect ratio are owned by the Settings page (Generation Settings).
+// They are persisted in this localStorage draft and read here at generate time.
 const CG_DRAFT_KEY = 'monkeyking_cg_draft';
-
-function saveCgDraft() {
-  try {
-    const draft = {
-      model:  cgModelSelect.value,
-      ar:     getSelectedAR(),
-      // prompt and style are NOT saved here — they live in SharedInputs
-    };
-    localStorage.setItem(CG_DRAFT_KEY, JSON.stringify(draft));
-  } catch { /* quota / private-mode */ }
-}
-
-function restoreCgDraft() {
-  try {
-    const raw = localStorage.getItem(CG_DRAFT_KEY);
-    if (!raw) return;
-    const draft = JSON.parse(raw);
-    // Only restore model if the option still exists after loadModels() rebuilt the select
-    if (draft.model) {
-      cgModelSelect.value = draft.model;
-      if (cgModelSelect.value !== draft.model) cgModelSelect.selectedIndex = 0;
-    }
-    if (draft.ar) {
-      cgAspectPresets.querySelectorAll('.ar-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.ar === draft.ar);
-      });
-    }
-  } catch { /* corrupted draft */ }
-}
 
 // ── Shared inputs — unified via SharedInputs.bindFields ──────────────────────
 // CG_FIELD_MAP declared at top of file; populate:true (default), debounce:300
 function wireSharedInputListeners() {
   SharedInputs.bindFields(CG_FIELD_MAP, { debounce: 300 });
 }
-
-// Debounced save for model/ar changes
-let _cgDraftTimer = null;
-function debouncedSaveCgDraft() {
-  clearTimeout(_cgDraftTimer);
-  _cgDraftTimer = setTimeout(saveCgDraft, 300);
-}
-
-cgModelSelect.addEventListener('change', saveCgDraft);
 
 // ── State helpers ───────────────────────────────────────────────────────────
 function showEmpty() {
@@ -291,6 +211,13 @@ cgGenerateBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Read generation prefs (model + aspect ratio) from the draft set by Settings.
+  // model is used for BOTH the generate payload and the gallery save.
+  // Default model must stay in sync with first imagen id in gemini_generator.GEMINI_MODELS.
+  const draft = (() => { try { return JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}'); } catch { return {}; } })();
+  const model = draft.model || 'imagen-4.0-generate-001';
+  const ar    = draft.ar || '3:4';
+
   hideError();
   setGenerating(true);
   showLoading();
@@ -302,8 +229,8 @@ cgGenerateBtn.addEventListener('click', async () => {
     prompt,
     style_prompt:         style,
     provider:             'gemini',
-    gemini_model:         cgModelSelect.value,
-    gemini_aspect_ratio:  getSelectedAR(),
+    gemini_model:         model,
+    gemini_aspect_ratio:  ar,
   };
 
   try {
@@ -336,7 +263,7 @@ cgGenerateBtn.addEventListener('click', async () => {
         prompt:       character,
         story,
         style_prompt: style,
-        model:        cgModelSelect.value,
+        model,
       }),
     }).catch(() => {/* silently ignore gallery save errors */});
   } catch (err) {
@@ -391,11 +318,6 @@ function restoreSession() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
-  await loadModels();
-
-  // Restore CG-specific settings (model/ar) AFTER loadModels() so the rebuilt
-  // select isn't clobbered
-  restoreCgDraft();
 
   // Restore any images generated earlier this session
   restoreSession();

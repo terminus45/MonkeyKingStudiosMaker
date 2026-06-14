@@ -18,20 +18,10 @@
   margin-bottom: 1.5rem;
 }
 
-.cg-layout {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-/* ── Controls panel ── */
-/* .builder-step and .step-header base rules now live in style.css */
-
-.cg-controls-panel {
-  /* Sticky so controls stay in view while result scrolls on tall viewports */
-  position: sticky;
-  top: 4rem; /* clears header (~56px) */
+/* ── Action block (button + error) — mirrors .fm-actions in figure_maker.css ── */
+.cg-actions {
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Result area ── */
@@ -52,6 +42,9 @@
   justify-content: center;
   overflow: hidden;
   position: relative;
+  /* 50px side gutters — mirrors .fm-viewer-frame in figure_maker.css */
+  margin-left: 50px;
+  margin-right: 50px;
 }
 
 /* Empty state */
@@ -171,14 +164,10 @@
 /* ── Responsive ── */
 
 @media (max-width: 700px) {
-  .cg-layout {
-    grid-template-columns: 1fr;
-  }
-  .cg-controls-panel {
-    position: static; /* unstick on mobile — scroll naturally */
-  }
   .cg-image-frame {
     min-height: 280px;
+    margin-left: 16px;   /* reduce gutters on narrow screens */
+    margin-right: 16px;
   }
   .cg-main {
     padding: 1rem .75rem 3rem;
