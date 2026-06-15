@@ -19,7 +19,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 pip install -r requirements.txt
 ```
 
-Environment variables are loaded from `.env` at startup via `start.sh`. Copy `.env.example` to `.env` and set values — at minimum `ANTHROPIC_API_KEY` for the `/decompose` endpoint and `DEVICE` for GPU acceleration (`cuda`, `mps`, or `cpu`). Set `GEMINI_API_KEY` to enable the Gemini/Imagen image provider, and `MESHY_API_KEY` to enable the Figure Maker 3D generator.
+Environment variables are loaded from `.env` at startup via `start.sh`. Copy `.env.example` to `.env` and set values — at minimum `ANTHROPIC_API_KEY` for the `/decompose` endpoint. Set `GEMINI_API_KEY` to enable Imagen/Gemini image generation, and `MESHY_API_KEY` to enable the Figure Maker 3D generator.
 
 API keys can also be managed at runtime from the **Settings** page (gear icon, top-left of every header), which persists them server-side to `config.json` (gitignored) and applies them without a restart. Key resolution precedence at every generation call site is **per-request override → `config.json` → environment variable** (see `settings_store.get_key`).
 
@@ -29,9 +29,8 @@ API keys can also be managed at runtime from the **Settings** page (gear icon, t
 
 ### Backend modules
 
-- **`config.py`** — all configuration via `os.getenv`. All other modules import from here; changing a default means changing it here.
-- **`generator.py`** — `ImageGenerator` singleton (`generator`) wraps a `diffusers` pipeline for SD/SDXL. Loads lazily on first request (or at startup via lifespan), hot-swaps models via `load()`/`load_by_number()`, supports up to 2 simultaneous LoRAs. Model type (SD 1.5 vs SDXL) is auto-detected by file size (≥4 GB → SDXL).
-- **`gemini_generator.py`** — stateless functions for Google Imagen and Gemini image generation. Lazily imports `google-genai` so the server starts even if the package is absent.
+- **`config.py`** — all configuration via `os.getenv`. All other modules import from here; changing a default means changing it here. SD/LoRA/device settings have been removed; only `OUTPUT_DIR`, `FIGURES_DIR`, API key names, `SAFETY_STYLE_SUFFIX`, `HOST`, and `PORT` remain.
+- **`gemini_generator.py`** — stateless functions for Google Imagen and Gemini image generation. Lazily imports `google-genai` so the server starts even if the package is absent. Exposes `save_image(image, filename)` to write PNGs to `OUTPUT_DIR`.
 - **`meshy_generator.py`** — stateless functions for Meshy.AI text-to-3D generation (preview → refine). Lazily imports `httpx`, reads the key at call time, and `download_model()` streams to a temp file then atomic-renames. The Meshy v2 REST flow returns a GLB (no STL — the **STL is exported client-side** in `figure_maker.js` from the loaded GLB via three.js `STLExporter`, so the download button needs no server round-trip).
 - **`settings_store.py`** — server-side API-key store. `load()`/`get_key()`/`set_keys()`/`status()`. Persists to `config.json` (atomic write + `chmod 0o600`); `status()` only ever exposes masked values. `get_key(name)` resolves `config.json` then environment.
 - **`languages.py`** — registry of supported storybook languages (Chinese, Japanese, Korean). Each entry defines field names, display labels, font metadata, and the Claude system prompt for that language. `public_metadata()` strips prompts before exposing to the frontend via `GET /languages`.
@@ -39,7 +38,7 @@ API keys can also be managed at runtime from the **Settings** page (gear icon, t
 
 ### Key data flows
 
-**Image generation** (`POST /generate/stream`): SSE endpoint runs generation in a background thread (because `diffusers` is synchronous), bridges results to an `asyncio.Queue`, and streams `{"step": N, "total": N}` progress events followed by `{"done": true, "filename": "...", "seed": N}`. The non-streaming `POST /generate` also exists for programmatic use. Both accept a `provider` field: `"sd"` (default, uses `generator.py`) or `"gemini"` (uses `gemini_generator.py`). Gemini images are saved via `generator.save()` even though the SD pipeline isn't involved.
+**Image generation** (`POST /generate/stream`): SSE endpoint runs Gemini/Imagen generation in a background thread, bridges results to an `asyncio.Queue`, and streams `{"step": 0, "total": 1}` then `{"done": true, "filename": "...", "seed": -1}`. The non-streaming `POST /generate` also exists for programmatic use. Both use Gemini exclusively (`gemini_generator.generate()`) and save via `gemini_generator.save_image()`. The SD pipeline has been removed.
 
 **Story decomposition** (`POST /decompose`): Calls Claude using **forced tool use** (`tool_choice: {type: "tool", name: "submit_storybook"}`). The tool schema enforces the storybook JSON structure — the API validates the model's response against it before returning, guaranteeing structural correctness. The system prompt (from `languages.py`) is cached with `cache_control: ephemeral`. Falls back to text parsing only if the model ignores the forced tool call.
 
@@ -76,25 +75,13 @@ The per-page sync wiring is unified in **`SharedInputs.bindFields(map, opts)`** 
 - Character Generator: the generated-image session strip + active image → `localStorage['monkeyking_cg_session']`, restored on load.
 - Figure Maker: the **in-flight job survives navigation** — the active `job_id` (+ `started_at`) is saved to `localStorage['monkeyking_fm_job']`; on load `resumeJobIfAny()` re-attaches the poll loop (35-min staleness cap; soft "check the Gallery" fallback if the server forgot the job, e.g. after a restart). A single-flight `_currentJobId` guard prevents a resumed loop and a fresh Generate from racing. (This replaced an earlier "leaving cancels the job" warning.)
 
-### Models and LoRAs
+### Models
 
-- Models: placed as `.safetensors`/`.ckpt` files or HuggingFace hub-cached directories under `./models/`. `discover_models()` scans and assigns stable 1-based numeric IDs used by the frontend selects.
-- LoRAs: `.safetensors`/`.pt` files under `./models/LORAs/`. Up to **2 LoRAs** can be active simultaneously. When 2 are used, the first is fused into the model weights (`fuse_lora()`) and the second is loaded normally — fusing permanently modifies the loaded weights, so `_fused = True` is tracked and triggers a full model reload the next time the LoRA set changes. Changing the LoRA set when `_fused` is true always forces a reload from disk.
+Stable Diffusion, LoRA, and local model management have been removed. Image generation uses the Gemini API exclusively. The active model is selected from the **Settings** page (`#settingsCgModel`, persisted to `localStorage['monkeyking_cg_draft'].model`) and shared by both Character Generator and Book Builder.
 
 ### Export
 
 `storybook_print.js` (shared by both print and HTML export flows) fetches each page's image, converts to base64, and assembles a self-contained HTML document with inline styles and images — no server round-trips at read time.
-
-### Mobile (Capacitor)
-
-`mobile/` contains a Capacitor wrapper (`com.bookbuilderbot.app`) that packages the frontend as an iOS/Android app. The web assets are copied to `mobile/www/` and synced with `npx cap sync`. The app talks to a remote server — there is no embedded backend.
-
-```bash
-cd mobile
-npx cap sync          # copy frontend assets and sync plugins
-npx cap open ios      # open in Xcode
-npx cap open android  # open in Android Studio
-```
 
 ## Agent workflow (`agents/`)
 

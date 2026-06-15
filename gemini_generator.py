@@ -1,10 +1,20 @@
-"""Gemini / Imagen image generation — shared library for Image Studio and Book Builder."""
+"""Gemini / Imagen image generation — primary image backend for Book Builder and Character Generator."""
 
 import io
 import os
 from typing import Optional
 
 from PIL import Image
+
+from config import OUTPUT_DIR
+
+
+def save_image(image: Image.Image, filename: str) -> str:
+    """Save a PIL Image to OUTPUT_DIR. Returns the full path."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(OUTPUT_DIR, filename)
+    image.save(path)
+    return path
 
 GEMINI_MODELS = [
     {"id": "imagen-4.0-generate-001",      "name": "Imagen 4",            "type": "imagen"},

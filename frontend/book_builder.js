@@ -41,9 +41,7 @@ function langMeta(code) {
 
 // ── State ──────────────────────────────────────────────────────────────────
 let storyData = null;   // DecomposeResponse from server
-let canvasW = 512, canvasH = 512;
-let provider = 'sd';
-let geminiAR = '1:1';
+let geminiAR = '4:3';  // default: classic storybook shape
 let currentLang = DEFAULT_LANG;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -77,25 +75,6 @@ const bookTitleSub    = document.getElementById('bookTitleSub');
 const pageGrid        = document.getElementById('pageGrid');
 
 const step3           = document.getElementById('step3');
-const modelSel        = document.getElementById('modelSelect');
-const genStylePrompt  = document.getElementById('genStylePrompt');
-const genNegPrompt    = document.getElementById('genNegPrompt');
-const negToggle       = document.getElementById('negToggle');
-const stepsEl         = document.getElementById('steps');
-const stepsVal        = document.getElementById('stepsVal');
-const cfgEl           = document.getElementById('cfg');
-const cfgVal          = document.getElementById('cfgVal');
-const samplerSel      = document.getElementById('samplerSelect');
-const clipSkipSel     = document.getElementById('clipSkipSelect');
-const geminiModelSel  = document.getElementById('geminiModelSelect');
-const loraSelect      = document.getElementById('loraSelect');
-const loraScaleRow    = document.getElementById('loraScaleRow');
-const loraScaleEl     = document.getElementById('loraScale');
-const loraScaleVal    = document.getElementById('loraScaleVal');
-const loraSelect2     = document.getElementById('loraSelect2');
-const loraScaleRow2   = document.getElementById('loraScaleRow2');
-const loraScaleEl2    = document.getElementById('loraScale2');
-const loraScaleVal2   = document.getElementById('loraScaleVal2');
 const queueBtn        = document.getElementById('queueBtn');
 const queueLabel      = document.getElementById('queueLabel');
 const queueSpinner    = document.getElementById('queueSpinner');
@@ -166,103 +145,14 @@ async function checkHealth() {
   }
 }
 
-async function loadModels() {
-  try {
-    const res  = await fetch(`${API}/models`);
-    const data = await res.json();
-    modelSel.innerHTML = '';
-    data.models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = `${m.id}. ${m.name}${m.loaded ? ' ✓' : ''}`;
-      if (m.loaded) opt.selected = true;
-      modelSel.appendChild(opt);
-    });
-  } catch {
-    modelSel.innerHTML = '<option value="">Unavailable</option>';
-  }
-}
-
-async function loadLoras() {
-  try {
-    const res  = await fetch(`${API}/loras`);
-    const data = await res.json();
-    const opts = '<option value="">— none —</option>' +
-      (data.loras || []).map(l => `<option value="${l.num}">${l.name}</option>`).join('');
-    loraSelect.innerHTML  = opts;
-    loraSelect2.innerHTML = opts;
-    loraScaleRow.classList.toggle('hidden',  !loraSelect.value);
-    loraScaleRow2.classList.toggle('hidden', !loraSelect2.value);
-  } catch {
-    // no loras available — leave dropdown empty
-  }
-}
-
-loraSelect.addEventListener('change', () => {
-  loraScaleRow.classList.toggle('hidden', !loraSelect.value);
-});
-loraScaleEl.addEventListener('input', () => {
-  loraScaleVal.textContent = parseFloat(loraScaleEl.value).toFixed(2);
-});
-loraSelect2.addEventListener('change', () => {
-  loraScaleRow2.classList.toggle('hidden', !loraSelect2.value);
-});
-loraScaleEl2.addEventListener('input', () => {
-  loraScaleVal2.textContent = parseFloat(loraScaleEl2.value).toFixed(2);
-});
-
-// ── Step 3 gen style presets ───────────────────────────────────────────────
-step3.addEventListener('click', e => {
+// ── Style preset buttons (shared inputs panel) ────────────────────────────
+document.getElementById('genStylePresets').addEventListener('click', e => {
   const btn = e.target.closest('#genStylePresets .preset');
   if (!btn) return;
-  genStylePrompt.value = btn.dataset.suffix;
-  saveGenSettings();
+  stylePromptInput.value = btn.dataset.suffix;
+  // Persist to shared store immediately
+  SharedInputs.patch({ style: btn.dataset.suffix });
 });
-
-// ── Negative prompt toggle ─────────────────────────────────────────────────
-negToggle.addEventListener('click', () => {
-  const open = negToggle.classList.toggle('open');
-  genNegPrompt.classList.toggle('collapsed', !open);
-});
-
-// ── Size presets + custom dimension inputs ─────────────────────────────────
-const widthInput  = document.getElementById('widthInput');
-const heightInput = document.getElementById('heightInput');
-
-function setCanvasSize(w, h) {
-  canvasW = w; canvasH = h;
-  widthInput.value  = w;
-  heightInput.value = h;
-}
-
-document.getElementById('sizePresets').addEventListener('click', e => {
-  const btn = e.target.closest('.size-btn');
-  if (!btn) return;
-  document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  setCanvasSize(parseInt(btn.dataset.w), parseInt(btn.dataset.h));
-});
-
-function onDimInput() {
-  const w = Math.max(64, Math.min(2048, parseInt(widthInput.value)  || canvasW));
-  const h = Math.max(64, Math.min(2048, parseInt(heightInput.value) || canvasH));
-  canvasW = w; canvasH = h;
-  document.querySelectorAll('.size-btn').forEach(b => {
-    b.classList.toggle('active', parseInt(b.dataset.w) === w && parseInt(b.dataset.h) === h);
-  });
-}
-widthInput.addEventListener('change',  onDimInput);
-heightInput.addEventListener('change', onDimInput);
-
-// ── Provider toggle ────────────────────────────────────────────────────────
-function setProvider(p, save = true) {
-  provider = p;
-  document.querySelectorAll('.provider-btn').forEach(b => b.classList.toggle('active', b.dataset.provider === p));
-  document.querySelectorAll('.sd-only').forEach(el => el.classList.toggle('hidden', p === 'gemini'));
-  document.querySelectorAll('.gemini-only').forEach(el => el.classList.toggle('hidden', p === 'sd'));
-  if (save) saveGenSettings();
-}
-document.querySelectorAll('.provider-btn').forEach(b => b.addEventListener('click', () => setProvider(b.dataset.provider)));
 
 // ── Gemini aspect ratio ────────────────────────────────────────────────────
 document.getElementById('geminiAspectPresets').addEventListener('click', e => {
@@ -274,76 +164,28 @@ document.getElementById('geminiAspectPresets').addEventListener('click', e => {
   saveGenSettings();
 });
 
-// ── Sliders ────────────────────────────────────────────────────────────────
-stepsEl.addEventListener('input',  () => { stepsVal.textContent = stepsEl.value; });
-stepsEl.addEventListener('change', () => { saveGenSettings(); });
-cfgEl.addEventListener('input',    () => { cfgVal.textContent  = parseFloat(cfgEl.value).toFixed(1); });
-cfgEl.addEventListener('change',   () => { saveGenSettings(); });
-
 // ── Gen settings persistence ───────────────────────────────────────────────
-const GEN_KEY = 'monkeyking_gen_settings';   // shared with Image Studio
+const GEN_KEY = 'monkeyking_gen_settings';
 
 function saveGenSettings() {
-  const settings = {
-    modelNum:    modelSel.value,
-    canvasW, canvasH,
-    steps:       stepsEl.value,
-    cfg:         cfgEl.value,
-    stylePrompt: genStylePrompt.value,
-    negPrompt:   genNegPrompt.value,
-    loraNum:     loraSelect.value,
-    loraScale:   loraScaleEl.value,
-    loraNum2:    loraSelect2.value,
-    loraScale2:  loraScaleEl2.value,
-    sampler:     samplerSel.value,
-    clipSkip:    clipSkipSel.value,
-    provider,
-    geminiModel: geminiModelSel.value,
-    geminiAR,
-  };
-  localStorage.setItem(GEN_KEY, JSON.stringify(settings));
+  localStorage.setItem(GEN_KEY, JSON.stringify({ ar: geminiAR }));
 }
 
 function restoreGenSettings() {
   let s;
   try { s = JSON.parse(localStorage.getItem(GEN_KEY) || 'null'); } catch { return; }
   if (!s) return;
-  if (s.modelNum)  modelSel.value = s.modelNum;
-  if (s.canvasW && s.canvasH) setCanvasSize(parseInt(s.canvasW), parseInt(s.canvasH));
-  if (s.steps) { stepsEl.value = s.steps; stepsVal.textContent = s.steps; }
-  if (s.cfg)   { cfgEl.value   = s.cfg;   cfgVal.textContent   = parseFloat(s.cfg).toFixed(1); }
-  if (s.stylePrompt !== undefined) genStylePrompt.value = s.stylePrompt;
-  if (s.negPrompt   !== undefined) genNegPrompt.value   = s.negPrompt;
-  if (s.loraNum) {
-    loraSelect.value = s.loraNum;
-    loraScaleEl.value = s.loraScale ?? '1.0';
-    loraScaleVal.textContent = parseFloat(s.loraScale ?? 1).toFixed(2);
-    loraScaleRow.classList.remove('hidden');
-  }
-  if (s.loraNum2) {
-    loraSelect2.value = s.loraNum2;
-    loraScaleEl2.value = s.loraScale2 ?? '1.0';
-    loraScaleVal2.textContent = parseFloat(s.loraScale2 ?? 1).toFixed(2);
-    loraScaleRow2.classList.remove('hidden');
-  }
-  if (s.sampler)  samplerSel.value  = s.sampler;
-  if (s.clipSkip) clipSkipSel.value = s.clipSkip;
-  if (s.geminiModel) {
-    geminiModelSel.value = s.geminiModel;
-    if (!geminiModelSel.value) geminiModelSel.selectedIndex = 0;
-  }
-  if (s.geminiAR) {
-    geminiAR = s.geminiAR;
-    document.querySelectorAll('.ar-btn').forEach(b => b.classList.toggle('active', b.dataset.ar === s.geminiAR));
-  }
-  if (s.provider) setProvider(s.provider, false);
-}
 
-// Save on control changes
-[modelSel, loraSelect, loraScaleEl, loraSelect2, loraScaleEl2, samplerSel, clipSkipSel, geminiModelSel].forEach(el =>
-  el.addEventListener('change', saveGenSettings));
-[widthInput, heightInput].forEach(el => el.addEventListener('change', saveGenSettings));
-[genStylePrompt, genNegPrompt].forEach(el => el.addEventListener('input', saveGenSettings));
+  // Accept both old key name (geminiAR) and new key (ar) for back-compat.
+  // All other legacy keys (modelNum, canvasW, steps, etc.) are silently ignored.
+  const savedAR = s.ar || s.geminiAR;
+  if (savedAR) {
+    geminiAR = savedAR;
+    document.querySelectorAll('.ar-btn').forEach(
+      b => b.classList.toggle('active', b.dataset.ar === savedAR)
+    );
+  }
+}
 
 // Export / Import / Reset
 document.getElementById('saveGenSettingsBtn').addEventListener('click', () => {
@@ -377,12 +219,10 @@ document.getElementById('loadGenSettingsFile').addEventListener('change', e => {
 document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
   if (!confirm('Reset generation settings to defaults?')) return;
   localStorage.removeItem(GEN_KEY);
-  // Reset controls to defaults
-  setCanvasSize(512, 512);
-  stepsEl.value = 30; stepsVal.textContent = '30';
-  cfgEl.value = 7.0;  cfgVal.textContent = '7.0';
-  loraSelect.value  = ''; loraScaleEl.value  = '1.0'; loraScaleVal.textContent  = '1.00'; loraScaleRow.classList.add('hidden');
-  loraSelect2.value = ''; loraScaleEl2.value = '1.0'; loraScaleVal2.textContent = '1.00'; loraScaleRow2.classList.add('hidden');
+  geminiAR = '4:3';
+  document.querySelectorAll('.ar-btn').forEach(
+    b => b.classList.toggle('active', b.dataset.ar === '4:3')
+  );
 });
 
 // ── Decompose ──────────────────────────────────────────────────────────────
@@ -546,6 +386,17 @@ pageGrid.addEventListener('change', e => {
   input.value = '';   // reset so same file can be re-selected
 });
 
+// ── Gemini model helper ────────────────────────────────────────────────────
+// Read the shared model from the CG draft localStorage key (same key used by
+// Character Generator and written by Settings). The fallback must stay in
+// sync with gemini_generator.GEMINI_MODELS[0].id.
+function getGeminiModel() {
+  try {
+    const d = JSON.parse(localStorage.getItem('monkeyking_cg_draft') || '{}');
+    return d.model || 'imagen-4.0-generate-001';
+  } catch { return 'imagen-4.0-generate-001'; }
+}
+
 // ── Single-page regeneration ───────────────────────────────────────────────
 const _regenActive = new Set();
 
@@ -564,29 +415,15 @@ async function generateSinglePage(pageNum) {
 
   const current = readCard(pageNum);
   showThumbSpinner(pageNum);
-  showCardProgress(pageNum, 0, provider === 'sd' ? parseInt(stepsEl.value) : 1);
+  showCardProgress(pageNum, 0, 1);
 
   const genBody = {
-    prompt:       current.image_prompt,
-    style_prompt: stylePromptInput.value.trim(),
-    provider,
-    width:        canvasW,
-    height:       canvasH,
+    prompt:              current.image_prompt,
+    style_prompt:        stylePromptInput.value.trim(),
+    provider:            'gemini',
+    gemini_model:        getGeminiModel(),
+    gemini_aspect_ratio: geminiAR,
   };
-  if (provider === 'sd') {
-    genBody.negative_prompt = genNegPrompt.value.trim();
-    genBody.model_num       = parseInt(modelSel.value) || undefined;
-    genBody.steps           = parseInt(stepsEl.value);
-    genBody.guidance_scale  = parseFloat(cfgEl.value);
-    genBody.seed            = -1;
-    genBody.sampler         = samplerSel.value;
-    genBody.clip_skip       = parseInt(clipSkipSel.value);
-    if (loraSelect.value)  { genBody.lora_num   = parseInt(loraSelect.value);  genBody.lora_scale   = parseFloat(loraScaleEl.value); }
-    if (loraSelect2.value) { genBody.lora_num_2 = parseInt(loraSelect2.value); genBody.lora_scale_2 = parseFloat(loraScaleEl2.value); }
-  } else {
-    genBody.gemini_model        = geminiModelSel.value;
-    genBody.gemini_aspect_ratio = geminiAR;
-  }
 
   try {
     const res = await fetch(`${API}/generate/stream`, {
@@ -699,30 +536,16 @@ queueBtn.addEventListener('click', async () => {
     const current = readCard(pg.page);
 
     showThumbSpinner(pg.page);
-    showCardProgress(pg.page, 0, provider === 'sd' ? parseInt(stepsEl.value) : 1);
+    showCardProgress(pg.page, 0, 1);
 
     try {
       const genBody = {
-        prompt:       current.image_prompt,
-        style_prompt: stylePromptInput.value.trim(),
-        provider,
-        width:        canvasW,
-        height:       canvasH,
+        prompt:              current.image_prompt,
+        style_prompt:        stylePromptInput.value.trim(),
+        provider:            'gemini',
+        gemini_model:        getGeminiModel(),
+        gemini_aspect_ratio: geminiAR,
       };
-      if (provider === 'sd') {
-        genBody.negative_prompt = genNegPrompt.value.trim();
-        genBody.model_num       = parseInt(modelSel.value) || undefined;
-        genBody.steps           = parseInt(stepsEl.value);
-        genBody.guidance_scale  = parseFloat(cfgEl.value);
-        genBody.seed            = -1;
-        genBody.sampler         = samplerSel.value;
-        genBody.clip_skip       = parseInt(clipSkipSel.value);
-        if (loraSelect.value)  { genBody.lora_num   = parseInt(loraSelect.value);  genBody.lora_scale   = parseFloat(loraScaleEl.value); }
-        if (loraSelect2.value) { genBody.lora_num_2 = parseInt(loraSelect2.value); genBody.lora_scale_2 = parseFloat(loraScaleEl2.value); }
-      } else {
-        genBody.gemini_model        = geminiModelSel.value;
-        genBody.gemini_aspect_ratio = geminiAR;
-      }
 
       const res = await fetch(`${API}/generate/stream`, {
         method: 'POST',
@@ -1152,7 +975,6 @@ function wireSharedInputListeners() {
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
-  await Promise.all([loadModels(), loadLoras()]);
   restoreGenSettings();
 
   // Apply remembered language before restoring state (restoreProject will override

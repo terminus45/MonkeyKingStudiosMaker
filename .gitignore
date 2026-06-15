@@ -8,5 +8,4 @@ gallery/
 config.json
 .DS_Store
 .claude/settings.local.json
-mobile/node_modules/
 *.swp

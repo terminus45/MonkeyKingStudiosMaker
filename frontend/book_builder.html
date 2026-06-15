@@ -99,6 +99,13 @@
           <textarea id="stylePromptInput" rows="2"
             placeholder="Soft watercolor, children's book art, warm pastel tones…"
             aria-describedby="sharedStyleHint"></textarea>
+          <div class="presets" id="genStylePresets" style="margin-top:.4rem">
+            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
+            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
+            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
+            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
+            <button class="preset" data-suffix="">Clear</button>
+          </div>
           <p class="hint" id="sharedStyleHint">The visual art style used across all illustrations.</p>
         </div>
 
@@ -189,130 +196,24 @@
         <h2>Generate Images</h2>
       </div>
 
-      <div class="gen-controls">
-        <div class="control-group">
-          <div class="provider-toggle">
-            <button class="provider-btn active" data-provider="sd">🖥 Local SD</button>
-            <button class="provider-btn" data-provider="gemini">✦ Gemini</button>
+      <div class="gen-controls-gemini">
+
+        <div class="control-group" id="bbAspectGroup">
+          <label id="bbAspectLabel">Page Shape</label>
+          <div class="presets" id="geminiAspectPresets"
+               role="group"
+               aria-labelledby="bbAspectLabel">
+            <button class="preset ar-btn" data-ar="1:1">1:1</button>
+            <button class="preset ar-btn" data-ar="16:9">16:9</button>
+            <button class="preset ar-btn" data-ar="9:16">9:16</button>
+            <button class="preset ar-btn active" data-ar="4:3">4:3</button>
+            <button class="preset ar-btn" data-ar="3:4">3:4</button>
           </div>
+          <p class="hint" id="bbAspectHint">
+            4:3 is the classic storybook shape. Use 16:9 for landscape spreads.
+          </p>
         </div>
 
-        <div class="control-group">
-          <label>Style Prompt</label>
-          <textarea id="genStylePrompt" rows="2" placeholder="Visual style applied to every image…"></textarea>
-          <div class="presets" id="genStylePresets" style="margin-top:.4rem">
-            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
-            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
-            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
-            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
-            <button class="preset" data-suffix="">Clear</button>
-          </div>
-        </div>
-
-        <div class="control-group gemini-only hidden">
-          <div class="gemini-options-row">
-            <div class="gemini-opt">
-              <label>Model</label>
-              <select id="geminiModelSelect">
-                <option value="imagen-4.0-generate-001">Imagen 4</option>
-                <option value="imagen-4.0-fast-generate-001">Imagen 4 Fast</option>
-                <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra</option>
-                <option value="gemini-2.5-flash-image">Gemini 2.5 Flash</option>
-              </select>
-            </div>
-            <div class="gemini-opt">
-              <label>Aspect Ratio</label>
-              <div class="presets" id="geminiAspectPresets">
-                <button class="preset ar-btn active" data-ar="1:1">1:1</button>
-                <button class="preset ar-btn" data-ar="16:9">16:9</button>
-                <button class="preset ar-btn" data-ar="9:16">9:16</button>
-                <button class="preset ar-btn" data-ar="4:3">4:3</button>
-                <button class="preset ar-btn" data-ar="3:4">3:4</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="control-group sd-only">
-          <label class="toggle-label" id="negToggle">Negative Prompt <span class="toggle-arrow">▸</span></label>
-          <textarea id="genNegPrompt" rows="2" class="collapsed"
-            placeholder="blurry, low quality…">blurry, low quality, watermark, text, deformed, ugly, bad anatomy</textarea>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>Model</label>
-          <select id="modelSelect"><option value="">Loading…</option></select>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>Canvas Size</label>
-          <div class="presets" id="sizePresets">
-            <button class="preset size-btn" data-w="1024" data-h="576">16:9</button>
-            <button class="preset size-btn" data-w="912" data-h="608">3:2</button>
-            <button class="preset size-btn" data-w="768" data-h="768">1:1</button>
-            <button class="preset size-btn" data-w="576" data-h="1024">Portrait</button>
-            <button class="preset size-btn active" data-w="512" data-h="512">512²</button>
-          </div>
-          <div class="size-dims-row">
-            <input type="number" id="widthInput"  value="512" min="64" max="2048" step="8">
-            <span class="size-dims-x">×</span>
-            <input type="number" id="heightInput" value="512" min="64" max="2048" step="8">
-            <span class="size-dims-px">px</span>
-          </div>
-        </div>
-
-        <div class="control-group sliders sd-only">
-          <div class="slider-row">
-            <label>Steps <span id="stepsVal">30</span></label>
-            <input type="range" id="steps" min="10" max="80" value="30">
-          </div>
-          <div class="slider-row">
-            <label>Guidance <span id="cfgVal">7.0</span></label>
-            <input type="range" id="cfg" min="1" max="20" step="0.5" value="7.0">
-          </div>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>Sampler</label>
-          <select id="samplerSelect">
-            <option value="dpm++2m">DPM++ 2M</option>
-            <option value="euler_a">Euler A</option>
-            <option value="euler">Euler</option>
-            <option value="ddim">DDIM</option>
-            <option value="heun">Heun</option>
-            <option value="dpm++_sde">DPM++ SDE</option>
-            <option value="unipc">UniPC</option>
-            <option value="lms">LMS</option>
-          </select>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>Clip Skip</label>
-          <select id="clipSkipSelect">
-            <option value="1">1</option>
-            <option value="2" selected>2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-          </select>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>LoRA 1</label>
-          <select id="loraSelect"><option value="">— none —</option></select>
-          <div class="slider-row lora-scale-row hidden" id="loraScaleRow">
-            <label>Weight <span id="loraScaleVal">1.00</span></label>
-            <input type="range" id="loraScale" min="0" max="2" step="0.05" value="1.0">
-          </div>
-        </div>
-
-        <div class="control-group sd-only">
-          <label>LoRA 2</label>
-          <select id="loraSelect2"><option value="">— none —</option></select>
-          <div class="slider-row lora-scale-row hidden" id="loraScaleRow2">
-            <label>Weight <span id="loraScaleVal2">1.00</span></label>
-            <input type="range" id="loraScale2" min="0" max="2" step="0.05" value="1.0">
-          </div>
-        </div>
       </div>
 
       <div class="settings-row" style="margin-top:.75rem">

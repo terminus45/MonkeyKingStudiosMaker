@@ -361,12 +361,11 @@
 }
 .card-error.hidden { display: none; }
 
-/* Generation controls */
-.gen-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+/* Generation controls — Gemini-only single-column layout */
+.gen-controls-gemini {
+  display: flex;
+  flex-direction: column;
   gap: 1.25rem;
-  align-items: start;
 }
 
 /* Queue button row */
@@ -484,7 +483,6 @@
 
 /* ── Responsive ── */
 @media (max-width: 700px) {
-  .gen-controls { grid-template-columns: 1fr; }
   .page-grid { grid-template-columns: 1fr; }
   /* nav stays visible on mobile — scrolls horizontally in header */
   .builder-main { padding: 1rem .75rem 3rem; gap: 1.5rem; }
