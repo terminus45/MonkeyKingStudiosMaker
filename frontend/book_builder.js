@@ -7,30 +7,18 @@ const LANG_META = {
     native_field: 'zh', reading_field: 'pinyin', reading_label: 'Pinyin',
     title_native_field: 'book_title_zh', title_reading_field: 'book_title_pinyin',
     font_class: 'lang-zh',
-    native_placeholder: '故事书', reading_placeholder: 'Gùshì shū',
-    table_native_aliases: ['汉字', '中文', 'chinese', 'zh', 'hanzi'],
-    table_reading_aliases: ['pinyin'],
-    table_headers_hint: '(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)',
   },
   ja: {
     code: 'ja', display_name: '日本語', english_name: 'Japanese',
     native_field: 'ja', reading_field: 'romaji', reading_label: 'Romaji',
     title_native_field: 'book_title_ja', title_reading_field: 'book_title_romaji',
     font_class: 'lang-ja',
-    native_placeholder: '物語', reading_placeholder: 'monogatari',
-    table_native_aliases: ['日本語', 'japanese', 'ja', 'kanji'],
-    table_reading_aliases: ['romaji', 'romaji reading', 'hepburn', 'reading'],
-    table_headers_hint: '(CSV or tab-separated · headers: Page, Romaji, 日本語, English, Illustration Prompt)',
   },
   ko: {
     code: 'ko', display_name: '한국어', english_name: 'Korean',
     native_field: 'ko', reading_field: 'romanization', reading_label: 'Romanization',
     title_native_field: 'book_title_ko', title_reading_field: 'book_title_romanization',
     font_class: 'lang-ko',
-    native_placeholder: '이야기책', reading_placeholder: 'iyagichaek',
-    table_native_aliases: ['한국어', 'korean', 'ko', 'hangul'],
-    table_reading_aliases: ['romanization', 'romanisation', 'rr'],
-    table_headers_hint: '(CSV or tab-separated · headers: Page, Romanization, 한국어, English, Illustration Prompt)',
   },
 };
 const DEFAULT_LANG = 'zh';
@@ -51,21 +39,6 @@ let lastCheckApplied = false;
 const conceptInput      = document.getElementById('conceptInput');
 const characterInput    = document.getElementById('characterInput');
 const stylePromptInput  = document.getElementById('stylePromptInput');
-const saveProjectBtn    = document.getElementById('saveProjectBtn');
-const clearProjectBtn   = document.getElementById('clearProjectBtn');
-const loadProjectFile   = document.getElementById('loadProjectFile');
-const decomposeBtn      = document.getElementById('decomposeBtn');
-const importTitleEn          = document.getElementById('importTitleEn');
-const importTitleNative      = document.getElementById('importTitleNative');
-const importTitleReading     = document.getElementById('importTitleReading');
-const importTitleNativeLabel = document.getElementById('importTitleNativeLabel');
-const importTitleReadingLabel= document.getElementById('importTitleReadingLabel');
-const tableHeadersHint  = document.getElementById('tableHeadersHint');
-const tableInput        = document.getElementById('tableInput');
-const parseTableBtn     = document.getElementById('parseTableBtn');
-const parseHint         = document.getElementById('parseHint');
-const decomposeLabel  = document.getElementById('decomposeLabel');
-const decomposeSpinner= document.getElementById('decomposeSpinner');
 const decomposeHint   = document.getElementById('decomposeHint');
 const autoGenBtn      = document.getElementById('autoGenBtn');
 const autoGenLabel    = document.getElementById('autoGenLabel');
@@ -107,20 +80,9 @@ const checkReadingsDialog  = document.getElementById('checkReadingsDialog');
 // (step1StylePresets removed — preset pills deleted from Step 1)
 
 // ── Language selector ──────────────────────────────────────────────────────
-function applyLanguageToUI(code) {
-  const meta = langMeta(code);
-  // Import-section labels and placeholders
-  importTitleNativeLabel.textContent  = `Book Title (${meta.english_name})`;
-  importTitleReadingLabel.textContent = `Title ${meta.reading_label}`;
-  importTitleNative.placeholder  = meta.native_placeholder;
-  importTitleReading.placeholder = meta.reading_placeholder;
-  if (tableHeadersHint) tableHeadersHint.textContent = meta.table_headers_hint;
-}
-
 function setLanguage(code, { rerender = true, save = true } = {}) {
   if (!LANG_META[code]) code = DEFAULT_LANG;
   currentLang = code;
-  applyLanguageToUI(code);
   if (rerender && storyData) renderPages(storyData);
   if (save) saveState();
 }
@@ -137,15 +99,6 @@ async function checkHealth() {
     statusLabel.textContent = 'Server offline';
   }
 }
-
-// ── Style preset buttons (shared inputs panel) ────────────────────────────
-document.getElementById('genStylePresets').addEventListener('click', e => {
-  const btn = e.target.closest('#genStylePresets .preset');
-  if (!btn) return;
-  stylePromptInput.value = btn.dataset.suffix;
-  // Persist to shared store immediately
-  SharedInputs.patch({ style: btn.dataset.suffix });
-});
 
 // ── Gemini aspect ratio ────────────────────────────────────────────────────
 document.getElementById('geminiAspectPresets').addEventListener('click', e => {
@@ -219,12 +172,6 @@ document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
 });
 
 // ── Decompose ──────────────────────────────────────────────────────────────
-decomposeBtn.addEventListener('click', async () => {
-  if (await runDecompose()) {
-    step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-});
-
 autoGenBtn.addEventListener('click', async () => {
   if (await runDecompose()) {
     step3.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -263,7 +210,6 @@ async function runDecompose() {
     step4.classList.remove('hidden');
     queueBtn.disabled = false;
     checkReadingsBtn.disabled = false;
-    saveProjectBtn.disabled = false;
     saveState();
     return true;
   } catch (err) {
@@ -275,12 +221,9 @@ async function runDecompose() {
 }
 
 function setDecomposeLoading(on) {
-  decomposeBtn.disabled = on;
   autoGenBtn.disabled   = on;
   checkReadingsBtn.disabled = on;
-  decomposeLabel.textContent = on ? 'Writing…' : '✦ Create Story with Claude';
-  autoGenLabel.textContent   = on ? 'Writing…' : '⚡ Create Story + Generate Images';
-  decomposeSpinner.classList.toggle('hidden', !on);
+  autoGenLabel.textContent   = on ? 'Writing…' : '⚡ Generate Story and Pictures';
   autoGenSpinner.classList.toggle('hidden', !on);
 }
 
@@ -604,7 +547,6 @@ queueBtn.addEventListener('click', async () => {
   }
 
   setQueueLoading(false);
-  saveProjectBtn.disabled = false;
 });
 
 function setQueueLoading(on) {
@@ -753,107 +695,6 @@ function currentProject() {
 }
 
 
-// ── Table import ───────────────────────────────────────────────────────────
-parseTableBtn.addEventListener('click', () => {
-  const raw = tableInput.value.trim();
-  if (!raw) { parseHint.textContent = 'Paste a table first.'; return; }
-
-  const { pages, error } = parseTableCSV(raw);
-  if (error) { parseHint.textContent = `Error: ${error}`; return; }
-
-  const meta = langMeta(currentLang);
-  // No book_title_characters here by design — imported stories have no per-character
-  // title alignment yet; running "Check Readings" populates it (cover falls back to
-  // the zh splitter / native+reading line until then).
-  storyData = {
-    language:                       currentLang,
-    book_title_en:                  importTitleEn.value.trim()      || 'Imported Story',
-    [meta.title_native_field]:      importTitleNative.value.trim()  || '',
-    [meta.title_reading_field]:     importTitleReading.value.trim() || '',
-    pages,
-  };
-
-  lastCheckApplied = false;
-  Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
-  renderPages(storyData);
-  step2.classList.remove('hidden');
-  step4.classList.remove('hidden');
-  queueBtn.disabled         = false;
-  checkReadingsBtn.disabled = false;
-  saveProjectBtn.disabled   = false;
-  saveState();
-
-  parseHint.textContent = `✓ Imported ${pages.length} pages.`;
-  step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
-
-function parseTableCSV(raw) {
-  // Detect delimiter: tab if tabs present, otherwise comma
-  const delim = raw.includes('\t') ? '\t' : ',';
-  const lines  = raw.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return { error: 'Need at least a header row and one data row.' };
-
-  const headers = splitRow(lines[0], delim).map(h => h.trim().toLowerCase());
-  const meta = langMeta(currentLang);
-
-  // Map header names to standard fields (language-aware for native/reading columns)
-  const colIndex = {
-    page:         findCol(headers, ['page', 'pg', '#']),
-    reading:      findCol(headers, meta.table_reading_aliases),
-    native:       findCol(headers, meta.table_native_aliases),
-    en:           findCol(headers, ['english', 'en', 'translation']),
-    image_prompt: findCol(headers, ['illustration prompt', 'illustration', 'image prompt', 'prompt', 'image_prompt']),
-  };
-
-  const missing = Object.entries(colIndex).filter(([, v]) => v === -1).map(([k]) => k);
-  if (missing.length) return { error: `Could not find columns: ${missing.join(', ')}` };
-
-  const pages = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = splitRow(lines[i], delim);
-    const pageNum = parseInt(cells[colIndex.page]);
-    if (isNaN(pageNum)) continue;
-    pages.push({
-      page:                     pageNum,
-      [meta.reading_field]:     (cells[colIndex.reading]      ?? '').trim(),
-      [meta.native_field]:      (cells[colIndex.native]       ?? '').trim(),
-      en:                       (cells[colIndex.en]           ?? '').trim(),
-      image_prompt:             (cells[colIndex.image_prompt] ?? '').trim(),
-    });
-  }
-
-  if (!pages.length) return { error: 'No valid data rows found.' };
-  pages.sort((a, b) => a.page - b.page);
-  return { pages };
-}
-
-function findCol(headers, candidates) {
-  for (const c of candidates) {
-    const idx = headers.findIndex(h => h === c || h.includes(c));
-    if (idx !== -1) return idx;
-  }
-  return -1;
-}
-
-function splitRow(line, delim) {
-  // RFC 4180-style CSV split (handles quoted fields containing the delimiter)
-  if (delim === '\t') return line.split('\t').map(c => c.replace(/^"|"$/g, ''));
-  const cells = [];
-  let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (ch === delim && !inQ) {
-      cells.push(cur); cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  cells.push(cur);
-  return cells;
-}
 
 // ── Staleness tracking ─────────────────────────────────────────────────────
 // When the user edits a native-field textarea after a Check Readings Apply,
@@ -1155,9 +996,6 @@ function saveState() {
     concept:             conceptInput.value.trim(),
     character:           characterInput.value.trim(),
     style_prompt:        stylePromptInput.value.trim(),
-    import_title_en:     importTitleEn.value.trim(),
-    import_title_native: importTitleNative.value.trim(),
-    import_title_reading:importTitleReading.value.trim(),
     story:               { ...storyData, language: currentLang, pages: editedPages },
     generated_images:    Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
@@ -1182,75 +1020,15 @@ function clearProject({ keepInputs = false } = {}) {
     // Clear the character field in shared store too
     SharedInputs.patch({ character: '' });
   }
-  importTitleEn.value      = '';
-  importTitleNative.value  = '';
-  importTitleReading.value = '';
-  tableInput.value         = '';
 
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
   step4.classList.add('hidden');
   queueBtn.disabled          = true;
   checkReadingsBtn.disabled  = true;
-  saveProjectBtn.disabled    = true;
   decomposeHint.textContent  = '';
   checkReadingsHint.textContent = '';
-  parseHint.textContent      = '';
 }
-
-clearProjectBtn.addEventListener('click', () => {
-  if (!confirm('Clear the current project? This cannot be undone.')) return;
-  clearProject();
-});
-
-// ── Save / Load project ────────────────────────────────────────────────────
-saveProjectBtn.addEventListener('click', saveProject);
-
-function saveProject() {
-  if (!storyData) return;
-
-  // Capture any user edits from the card textareas
-  const editedPages = storyData.pages.map(pg => readCard(pg.page));
-
-  const project = {
-    version: 1,
-    saved_at: new Date().toISOString(),
-    concept: conceptInput.value.trim(),
-    character: characterInput.value.trim(),
-    style_prompt: stylePromptInput.value.trim(),
-    story: { ...storyData, language: currentLang, pages: editedPages },
-    generated_images: Object.fromEntries(
-      Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
-    ),
-  };
-
-  const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `${storyData.book_title_en.replace(/[^a-z0-9]+/gi, '_')}.monkeyking.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-loadProjectFile.addEventListener('change', async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  e.target.value = '';
-  let project;
-  try {
-    project = JSON.parse(await file.text());
-  } catch {
-    alert('Invalid project file.');
-    return;
-  }
-  if (!project.story?.pages) {
-    alert('Project file is missing story data.');
-    return;
-  }
-  await restoreProject(project);
-});
-
 
 // ── Shared inputs — restore and wire live-sync ─────────────────────────────
 // Simplified restore: just set the three .value fields from the shared store.
@@ -1372,7 +1150,6 @@ async function restoreProject(project) {
   step4.classList.remove('hidden');
   queueBtn.disabled         = false;
   checkReadingsBtn.disabled = false;
-  saveProjectBtn.disabled   = false;
 
   if (project.generated_images) {
     await Promise.allSettled(
@@ -1407,10 +1184,6 @@ async function restoreState(state) {
   // state is optional — read it from storage when not supplied.
   if (!state) state = readSavedState();
   if (!state) return false;
-  importTitleEn.value      = state.import_title_en       ?? '';
-  // Accept both new (import_title_native/reading) and legacy (import_title_zh/pinyin) keys.
-  importTitleNative.value  = state.import_title_native   ?? state.import_title_zh     ?? '';
-  importTitleReading.value = state.import_title_reading  ?? state.import_title_pinyin ?? '';
   return await restoreProject(state);
 }
 

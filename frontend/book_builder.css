@@ -15,6 +15,7 @@
 .decompose-btn-row {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: .75rem;
   margin-top: 1rem;
 }
@@ -22,49 +23,12 @@
   flex: 1 1 240px;
   max-width: 380px;
 }
-.auto-gen-btn {
-  background: rgba(255,255,255,.10);
-  color: #ffffff;
-  border: 1px solid rgba(255,255,255,.10);
-}
-.auto-gen-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,.20);
-}
 
 /* Step sections — base .builder-step and .step-header now live in style.css */
 
 /* Remove per-step left border coloring — single uniform border */
 #step1, #step2, #step3, #step4 { border-left: 1px solid rgba(255,255,255,.10); }
 
-/* BB tab controls card (language + project actions): visual treatment comes from
-   .builder-step; the mustard left border is set inline on the element to match
-   the cgTabControls/fmTabControls pattern. */
-
-.project-actions {
-  margin-left: auto;
-  display: flex;
-  gap: .4rem;
-  flex-wrap: wrap;
-}
-.project-btn {
-  background: rgba(255,255,255,.10);
-  border: 1px solid rgba(255,255,255,.10);
-  border-radius: 10px;
-  padding: .4rem .8rem;
-  font-size: .8rem;
-  font-family: inherit;
-  cursor: pointer;
-  color: rgba(255,255,255,.70);
-  transition: background .15s, color .15s;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-}
-.project-btn:hover:not(:disabled) { background: rgba(255,255,255,.20); color: #ffffff; }
-.project-btn:disabled { opacity: .4; cursor: not-allowed; }
-.danger-btn { border-color: rgba(229,72,77,.40) !important; color: rgba(229,72,77,.90) !important; }
-.danger-btn:hover:not(:disabled) { background: rgba(229,72,77,.15) !important; color: #ffffff !important; border-color: rgba(229,72,77,.70) !important; }
 
 .step-num {
   width: 2.2rem; height: 2.2rem;
@@ -392,59 +356,6 @@
   color: var(--muted);
   white-space: nowrap;
   font-weight: 600;
-}
-
-/* ── Table import ── */
-.import-divider {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-  margin-top: 1rem;
-  color: rgba(255,255,255,.30);
-  font-size: .75rem;
-}
-.import-divider::before,
-.import-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,.10);
-}
-
-.import-section {
-  margin-top: .5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: rgba(255,255,255,.05);
-}
-.import-summary {
-  padding: .65rem .9rem;
-  cursor: pointer;
-  font-size: .82rem;
-  font-weight: 700;
-  color: rgba(255,255,255,.70);
-  list-style: none;
-  user-select: none;
-}
-.import-summary::-webkit-details-marker { display: none; }
-.import-summary::before {
-  content: '▸ ';
-  transition: transform .2s;
-  display: inline-block;
-}
-.import-section[open] .import-summary::before { transform: rotate(90deg); }
-
-.import-body {
-  padding: .85rem;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-}
-.import-titles {
-  display: flex;
-  gap: .65rem;
-  flex-wrap: wrap;
 }
 
 .export-actions {

@@ -99,72 +99,19 @@
           <textarea id="stylePromptInput" rows="2"
             placeholder="Colors, medium, and mood for the pictures…"
             aria-describedby="sharedStyleHint"></textarea>
-          <div class="presets" id="genStylePresets" style="margin-top:.4rem">
-            <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
-            <button class="preset" data-suffix="Traditional Chinese ink painting, brush strokes, Sumi-e style, monochrome">Sumi-e</button>
-            <button class="preset" data-suffix="Vibrant cinematic illustration, detailed painterly, storybook art, rich colors">Cinematic</button>
-            <button class="preset" data-suffix="Soft watercolor illustration, children's book art, delicate washes, pastel tones">Watercolor</button>
-            <button class="preset" data-suffix="">Clear</button>
-          </div>
           <p class="hint" id="sharedStyleHint">The visual art style used across all illustrations.</p>
         </div>
 
       </div>
       <!-- END CANONICAL SHARED INPUTS PANEL -->
 
-      <!-- BB Tab Controls: project actions -->
-      <div class="bb-tab-controls builder-step" style="border-left: 5px solid var(--mustard); margin-top: 1rem">
-
-        <div class="project-actions">
-          <button id="saveProjectBtn" class="project-btn" disabled>↓ Save Project</button>
-          <label class="project-btn" for="loadProjectFile">↑ Load Project</label>
-          <input type="file" id="loadProjectFile" accept=".json" style="display:none">
-          <button id="clearProjectBtn" class="project-btn danger-btn">✕ Clear</button>
-        </div>
-
-      </div>
-
       <div class="decompose-btn-row">
-        <button id="decomposeBtn" class="generate-btn">
-          <span id="decomposeLabel">✦ Generate Story</span>
-          <div class="spinner hidden" id="decomposeSpinner"></div>
-        </button>
-        <button id="autoGenBtn" class="generate-btn auto-gen-btn">
+        <button id="autoGenBtn" class="generate-btn">
           <span id="autoGenLabel">⚡ Generate Story and Pictures</span>
           <div class="spinner hidden" id="autoGenSpinner"></div>
         </button>
       </div>
       <p class="hint-text" id="decomposeHint"></p>
-
-      <div class="import-divider"><span>or import from table</span></div>
-
-      <details class="import-section" id="importSection">
-        <summary class="import-summary">↓ Paste CSV / spreadsheet table</summary>
-        <div class="import-body">
-          <div class="import-titles">
-            <div class="control-group" style="flex:2">
-              <label>Book Title (English)</label>
-              <input type="text" id="importTitleEn" placeholder="My Storybook">
-            </div>
-            <div class="control-group" style="flex:1.5">
-              <label id="importTitleNativeLabel">Native Title</label>
-              <input type="text" id="importTitleNative" placeholder="">
-            </div>
-            <div class="control-group" style="flex:1.5">
-              <label id="importTitleReadingLabel">Reading</label>
-              <input type="text" id="importTitleReading" placeholder="">
-            </div>
-          </div>
-          <div class="control-group" style="margin-top:.5rem">
-            <label>Table data <span class="hint" id="tableHeadersHint">(CSV or tab-separated · headers: Page, Pinyin, 汉字, English, Illustration Prompt)</span></label>
-            <textarea id="tableInput" rows="7" placeholder="Paste your table here…"></textarea>
-          </div>
-          <button id="parseTableBtn" class="generate-btn" style="max-width:260px;margin-top:.75rem">
-            ↑ Import Pages
-          </button>
-          <p class="hint-text" id="parseHint"></p>
-        </div>
-      </details>
     </section>
 
     <!-- ── STEP 2: Page Cards ── -->

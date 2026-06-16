@@ -265,6 +265,15 @@ This is preferable to a "one active at a time" accordion for two reasons:
 
 Each result region has a **dismiss button** in its top-right corner (a small `×` icon button, `aria-label="Close [result name]"`, `min-height: 36px`, `min-width: 36px`) so the user can collapse a result they are done with. Dismissing a result that still has an in-flight Figure job does NOT cancel the job — the job continues in `localStorage` and the result region can be re-opened by running the task again (where `resumeJobIfAny()` will re-attach).
 
+**Figure result region — WebGL teardown on dismiss.** Closing `mksFigureResult` (via its × button) MUST call `teardownViewer()` before adding the `hidden` class. Merely hiding the element is insufficient and leaves a live render loop and a leaked WebGL context. `teardownViewer()` must:
+1. Cancel the animation frame: `if (fmAnimId) { cancelAnimationFrame(fmAnimId); fmAnimId = null; }`
+2. Dispose the renderer: `if (fmRenderer) { fmRenderer.dispose(); fmRenderer = null; }`
+3. Disconnect the ResizeObserver: `if (fmRo) { fmRo.disconnect(); fmRo = null; }`
+4. Revoke the STL blob URL: `if (_figStlObjectUrl) { URL.revokeObjectURL(_figStlObjectUrl); _figStlObjectUrl = null; }`
+5. Clear the viewer container: `document.getElementById('mksFigViewer').innerHTML = '';`
+
+This is a direct port of the teardown pattern in `figure_maker.js`. The `closeResult('mksFigureResult')` helper must invoke `teardownViewer()` before hiding the section.
+
 ### Shared result region structure
 
 ```html
@@ -481,9 +490,9 @@ The five stages from `figure_maker.js` apply verbatim: `prompting → preview �
 
 ### three.js viewer — ES module and import map
 
-The inline viewer uses the same three.js CDN import map and the same `mountViewer()` approach from `figure_maker.js`. The `<script type="importmap">` block must appear in `<head>` before any module script. `shared_inputs.js` is a plain (non-module) `<script>` loaded at end-of-body BEFORE the `<script type="module" src="mks_mobile.js">` tag. This is the exact pattern already established in `gallery.html` (where `storybook_print.js` is a non-module loaded before `<script type="module" src="gallery.js">`).
+The inline viewer uses the same three.js CDN import map and the same `mountViewer()` approach from `figure_maker.js`. This is the exact pattern already established in `gallery.html` (where `storybook_print.js` is a non-module loaded before `<script type="module" src="gallery.js">`).
 
-**Concrete head block additions:**
+**Import map (in `<head>`, before any module script — see Section 10):**
 
 ```html
 <script type="importmap">
@@ -496,10 +505,10 @@ The inline viewer uses the same three.js CDN import map and the same `mountViewe
 </script>
 ```
 
-**End-of-body load order:**
+**Runtime scripts (end of `<body>` — see Section 9):**
 
 ```html
-<script src="shared_inputs.js"></script>     <!-- non-module, sets window.SharedInputs -->
+<script src="shared_inputs.js"></script>              <!-- non-module, sets window.SharedInputs -->
 <script type="module" src="mks_mobile.js"></script>   <!-- ES module, imports THREE -->
 ```
 
@@ -513,7 +522,20 @@ After the GLB loads into the viewer, export STL client-side via `STLExporter` (s
 
 `mks_mobile.js` must implement the same `saveFmJob` / `readFmJob` / `clearFmJob` functions using `localStorage['monkeyking_fm_job']` with the same `{ job_id, started_at }` shape. `resumeJobIfAny()` runs on page init (same 35-min staleness cap). If a stale job is found on load, the Figure result region is opened automatically and the progress UI is shown.
 
-**Single-flight guard:** The `_currentJobId` variable (same pattern as `figure_maker.js`) prevents a resumed loop and a new Generate click from racing. Setting `_currentJobId = null` before starting a new job supersedes any running poll.
+**Single-flight guard:** The mobile page uses `_figCurrentJobId` (renamed from `figure_maker.js`'s `_currentJobId` to be file-local). The exact semantics must be preserved:
+1. Before sending `POST /figure/generate`, set `_figCurrentJobId = null`.
+2. After receiving the response, set `_figCurrentJobId = data.job_id`.
+3. Every iteration of the poll loop checks `if (jobId !== _figCurrentJobId) return;` at the top — where `jobId` is the value captured at the start of that poll invocation. This gates the continuation so a resumed loop and a fresh Generate click cannot race.
+
+This is identical to `figure_maker.js`'s `_currentJobId` guard, just renamed for this file.
+
+**Shared `monkeyking_fm_job` slot.** `localStorage['monkeyking_fm_job']` is a single slot shared by `figure_maker.js`, `mks_mobile.js`, and the "Create Figure" flow in `character_generator.js`. Starting a new figure job on any of these pages overwrites the slot, orphaning any prior job id. This is a pre-existing limitation — the spec does not change it. The developer must add the following comment at the `saveFmJob` call site:
+
+```js
+// NOTE: monkeyking_fm_job is a shared single slot (figure_maker.js, mks_mobile.js,
+// character_generator.js). Writing here orphans any prior job id from another page.
+// This is intentional — only one figure job is tracked at a time across all pages.
+```
 
 ---
 
@@ -528,6 +550,10 @@ The decompose endpoint requires `concept: str` (mandatory, from `DecomposeReques
 ```js
 const inputs = SharedInputs.read();
 const character = inputs.character.trim();
+// NOTE: SharedInputs.story maps to Book Builder's concept input. In book_builder.js,
+// SharedInputs.bindFields maps { story: 'conceptInput' } — so if the user has typed
+// a concept in Book Builder, it arrives here as inputs.story. The fallback chain
+// below is therefore coherent: story (= BB concept) → character → hardcoded default.
 const story     = inputs.story.trim();
 
 // concept falls back to character text if story is empty.
@@ -538,7 +564,9 @@ const payload = {
   concept,
   character: character,     // sent separately so Claude can pin it to every page
   style_suffix: inputs.style.trim(),
-  language: 'zh',           // default — architect to decide if a lang picker is in scope
+  // language is NOT sent — the backend applies its default.
+  // Language selection is being moved to Settings as separate, future work.
+  // This page must not implement or assume a language picker.
 };
 ```
 
@@ -546,7 +574,7 @@ If both `story` AND `character` are blank, `concept` falls back to the literal s
 
 **Page range:** The backend defaults to `min_pages=10, max_pages=10`. The mobile launcher sends no page-range override — it accepts the default 10-page storybook.
 
-**Language:** Default `zh` (Chinese). A language toggle within the Book result region is a v2 concern — the architect should flag if this is a blocking omission. For v1, the spec prescribes `zh` fixed.
+**Language:** No `language` field is sent. The backend applies its own default. Language selection is being moved to Settings as separate, future work — this page must not implement or assume a language picker of any kind.
 
 ### Request
 
@@ -705,14 +733,18 @@ Only `character` is mapped — `story` and `style` are read via `SharedInputs.re
 2. Any sibling tab that edits `character` → storage event → `#mksPromptInput` value updated silently.
 3. `story` and `style` values in the store are preserved. This page never touches them via `bindFields`.
 
-### Script load order (end-of-body)
+### Script load order
+
+The `<script type="importmap">` block lives in `<head>` (see Section 10 — Full Head Block) before any module script, as required by the HTML spec. This is the same pattern used in `gallery.html`.
+
+The two runtime scripts go at the end of `<body>`:
 
 ```html
-<script src="shared_inputs.js"></script>             <!-- non-module -->
+<script src="shared_inputs.js"></script>             <!-- non-module, sets window.SharedInputs -->
 <script type="module" src="mks_mobile.js"></script>  <!-- ES module, deferred automatically -->
 ```
 
-Do NOT place either script in `<head>`. Do NOT add `defer` explicitly to the module script — it is implicit. `shared_inputs.js` must be the non-module script and must appear first so that `window.SharedInputs` is defined by the time the module's top-level code executes (modules run after parsing, after non-module scripts that appear earlier in body).
+`shared_inputs.js` must appear before the module so `window.SharedInputs` is defined when the module's top-level code executes. Do NOT add `defer` explicitly to the module script — it is implicit. Do NOT place either runtime script in `<head>`.
 
 ---
 
@@ -753,11 +785,12 @@ Do NOT place either script in `<head>`. Do NOT add `defer` explicitly to the mod
 
 ## 11. Header Block
 
-Identical structure to all sibling pages. Nav active state: Home (or "MKS") if a Home nav link exists. Since this page replaces the home-tab spec, it should carry `class="nav-link active"` on the Home link:
+Identical structure to all sibling pages. Nav active state: this page is `mks_mobile.html`, so the active link should reflect that. If a nav link for this page exists, it carries `class="nav-link active"`. Example nav (the exact set of links follows whatever the shared nav settles on):
 
 ```html
 <nav class="header-nav" aria-label="Main navigation">
-  <a href="home.html" class="nav-link active">🏠 Home</a>
+  <a href="home.html" class="nav-link">🏠 Home</a>
+  <a href="mks_mobile.html" class="nav-link active">🤖 MKS</a>
   <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
   <a href="book_builder.html" class="nav-link">📖 Book Builder</a>
   <a href="figure_maker.html" class="nav-link">🧩 Figure Maker</a>
@@ -765,19 +798,13 @@ Identical structure to all sibling pages. Nav active state: Home (or "MKS") if a
 </nav>
 ```
 
+Whether a nav link to `mks_mobile.html` is added to the shared nav of all pages is out of scope for this spec.
+
 Server status block is included (`.server-status`, `#statusDot`, `#statusLabel`). `mks_mobile.js` implements a simple `checkHealth()` that shows "Connected" / "Server offline" without the `loaded_model` suffix (same as the simplified version specified in `home-tab.md` Section 8).
 
 ### GET / route
 
-In `main.py`, the `GET /` redirect should point to `home.html` (this page):
-
-```python
-@app.get("/")
-def root():
-    return RedirectResponse(url="/home.html")
-```
-
-This is the only backend change required.
+`GET /` is UNCHANGED. It continues to redirect to `home.html` per the home-tab decision. No changes to `main.py` are required for this page. `mks_mobile.html` is served directly by the existing FastAPI static mount at the path `/mks_mobile.html`.
 
 ---
 
@@ -903,6 +930,16 @@ function wireSharedInputListeners() {
   SharedInputs.bindFields({ character: 'mksPromptInput' }, { debounce: 300 });
 }
 
+// ── Viewer teardown — called by mksFigureClose handler (see Section 5) ───────
+function teardownViewer() {
+  if (fmAnimId)   { cancelAnimationFrame(fmAnimId); fmAnimId = null; }
+  if (fmRenderer) { fmRenderer.dispose(); fmRenderer = null; }
+  if (fmRo)       { fmRo.disconnect(); fmRo = null; }
+  if (_figStlObjectUrl) { URL.revokeObjectURL(_figStlObjectUrl); _figStlObjectUrl = null; }
+  const v = document.getElementById('mksFigViewer');
+  if (v) v.innerHTML = '';
+}
+
 // ── Task handlers ─────────────────────────────────────────────────────────────
 async function handleCreateImage() { /* see Section 6 */ }
 async function handleBuildFigure() { /* see Section 7 */ }
@@ -919,8 +956,10 @@ async function handleBookBuilder() { /* see Section 8 */ }
   mksBookBuilderBtn.addEventListener('click', handleBookBuilder);
 
   // Close buttons
+  // NOTE: Figure close MUST call teardownViewer() — see Section 5 for the full
+  // teardown spec. Merely hiding the element leaks a live render loop + WebGL context.
   document.getElementById('mksImageClose') .addEventListener('click', () => closeResult('mksImageResult'));
-  document.getElementById('mksFigureClose').addEventListener('click', () => closeResult('mksFigureResult'));
+  document.getElementById('mksFigureClose').addEventListener('click', () => { teardownViewer(); closeResult('mksFigureResult'); });
   document.getElementById('mksBookClose')  .addEventListener('click', () => closeResult('mksBookResult'));
 })();
 
@@ -955,7 +994,7 @@ mks_mobile.css — NEW file. Owns:
 
 ## 16. Acceptance Criteria
 
-1. **Landing:** `GET /` loads `home.html` (this page). Page title is "MKS · MonkeyKing Studios".
+1. **Landing:** `GET /mks_mobile.html` loads this page (served by the static mount). Page title is "MKS · MonkeyKing Studios". `GET /` is unchanged — it still redirects to `home.html`.
 
 2. **Create Image — success:** Typing a character description and clicking "Create Image" sends `POST /generate` with the correct payload. The image region opens, shows the skeleton loader, then replaces it with the generated image. The download link is populated.
 
@@ -969,7 +1008,7 @@ mks_mobile.css — NEW file. Owns:
 
 7. **Build Figure — concurrent with Image:** Both "Create Image" and "Build Figure" can be running simultaneously. Both result regions are visible simultaneously. Each button's loading state is independent.
 
-8. **Book Builder — with prompt:** Typing a character description and clicking "Book Builder" sends `POST /decompose` with `concept = character`, `character = character`, `style_suffix`, `language: 'zh'`. The book region shows the loading state for ~20 s, then renders mini-cards for each page.
+8. **Book Builder — with prompt:** Typing a character description and clicking "Book Builder" sends `POST /decompose` with `concept = character`, `character = character`, `style_suffix` — and NO `language` field (the backend applies its default). The book region shows the loading state for ~20 s, then renders mini-cards for each page.
 
 9. **Book Builder — empty prompt:** With `#mksPromptInput` empty, clicking "Book Builder" sends `POST /decompose` with `concept = 'A fun adventure story'`. The book still runs and returns pages. No validation error is shown for this button alone.
 
@@ -1015,13 +1054,9 @@ The following decisions involve tradeoffs that warrant scrutiny before implement
 
 **Flag for architect:** A v2 enhancement could write the `DecomposeResponse` to `sessionStorage` and have `book_builder.js` read it on load (similar to how CG passes a cover image via `sessionStorage.setItem('cg_cover_filename', …)`). This spec explicitly defers that to v2 to keep scope manageable.
 
-### D. Fixed language (zh) for mobile Book Builder
+### D. Language — resolved, deferred to Settings
 
-**Decision:** `language: 'zh'` is hardcoded in the mobile decompose payload.
-
-**Risk:** Users who want Japanese or Korean storybooks must navigate to the full Book Builder. On mobile this is a significant restriction.
-
-**Flag for architect:** A three-button language toggle (zh / ja / ko) in the Book result region header (appearing before the "Writing…" state resolves) is a natural extension. This spec defers it to avoid scope creep but recommends the architect evaluate whether it should be in v1.
+**Decision:** No `language` field is sent in the `/decompose` payload from this page. Language selection is being moved to the Settings page as a separate, future work item. This page must not implement or assume a language picker of any kind. This is no longer an open question.
 
 ### E. ES module tension with shared_inputs.js
 
