@@ -66,6 +66,12 @@ const printSpinner    = document.getElementById('printSpinner');
 const galleryBtn      = document.getElementById('galleryBtn');
 const galleryLabel    = document.getElementById('galleryLabel');
 const gallerySpinner  = document.getElementById('gallerySpinner');
+const practiceSheetBtn = document.getElementById('practiceSheetBtn');
+const practiceLabel   = document.getElementById('practiceLabel');
+const practiceSpinner = document.getElementById('practiceSpinner');
+const practiceLocalBtn   = document.getElementById('practiceLocalBtn');
+const practiceLocalLabel = document.getElementById('practiceLocalLabel');
+const practiceLocalSpinner = document.getElementById('practiceLocalSpinner');
 
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
@@ -83,6 +89,13 @@ const checkReadingsDialog  = document.getElementById('checkReadingsDialog');
 function setLanguage(code, { rerender = true, save = true } = {}) {
   if (!LANG_META[code]) code = DEFAULT_LANG;
   currentLang = code;
+  // Practice Sheet buttons are Chinese-only — show/hide accordingly
+  if (practiceSheetBtn) {
+    practiceSheetBtn.classList.toggle('hidden', code !== 'zh');
+  }
+  if (practiceLocalBtn) {
+    practiceLocalBtn.classList.toggle('hidden', code !== 'zh');
+  }
   if (rerender && storyData) renderPages(storyData);
   if (save) saveState();
 }
@@ -192,6 +205,8 @@ async function runDecompose() {
   decomposeHint.textContent = 'Claude is writing your storybook… this takes ~20 seconds.';
 
   try {
+    const rawPages = parseInt(localStorage.getItem('monkeyking_bb_pages'), 10);
+    const pageCount = (rawPages === 11 || rawPages === 15 || rawPages === 19) ? rawPages : 11;
     const res = await fetch(`${API}/decompose`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -200,6 +215,7 @@ async function runDecompose() {
         style_suffix: sharedStyleInput.value.trim(),
         language: currentLang,
         character,
+        page_count: pageCount,
       }),
     });
     if (!res.ok) {
@@ -698,6 +714,122 @@ function currentProject() {
     ),
   };
 }
+
+// ── Practice Sheet ─────────────────────────────────────────────────────────
+practiceSheetBtn.addEventListener('click', async () => {
+  if (!storyData) return;
+  const meta = langMeta(currentLang);
+
+  // Gather Chinese text from all pages
+  const zhText = storyData.pages
+    .map(p => p[meta.native_field])
+    .filter(Boolean)
+    .join('\n');
+
+  if (!zhText.trim()) {
+    alert('No Chinese text found in this book. Please build a Chinese storybook first.');
+    return;
+  }
+
+  practiceSheetBtn.disabled = true;
+  practiceLabel.textContent = 'Building… (~a minute)';
+  practiceSpinner.classList.remove('hidden');
+
+  try {
+    // POST to start the job
+    const startRes = await fetch(`${API}/practice-sheet`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        language:        currentLang,
+        book_title_en:   storyData.book_title_en || sharedStoryInput.value.trim(),
+        book_title_zh:   storyData[meta.title_native_field] || '',
+        book_title_pinyin: storyData[meta.title_reading_field] || '',
+        zh_text:         zhText,
+      }),
+    });
+    if (!startRes.ok) {
+      const detail = (await startRes.json()).detail ?? startRes.statusText;
+      throw new Error(detail);
+    }
+    const { job_id } = await startRes.json();
+
+    // Poll until done or error
+    let stage = 'executing';
+    while (stage !== 'done' && stage !== 'error') {
+      await new Promise(r => setTimeout(r, 2000));
+      const pollRes = await fetch(`${API}/practice-sheet/status/${job_id}`);
+      if (!pollRes.ok) throw new Error(`Status poll failed: ${pollRes.statusText}`);
+      const rec = await pollRes.json();
+      stage = rec.stage;
+      if (stage === 'error') throw new Error(rec.error || 'Unknown error from server');
+    }
+
+    // Trigger browser download
+    const anchor = document.createElement('a');
+    anchor.href = `${API}/practice-sheet/download/${job_id}`;
+    anchor.download = '';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    practiceLabel.textContent = '✓ Downloaded!';
+    setTimeout(() => { practiceLabel.textContent = '🖌 Create Practice Sheet'; }, 2500);
+  } catch (err) {
+    alert(`Practice sheet failed: ${err.message}`);
+    practiceLabel.textContent = '🖌 Create Practice Sheet';
+  } finally {
+    practiceSheetBtn.disabled = false;
+    practiceSpinner.classList.add('hidden');
+  }
+});
+
+// ── Local practice sheet (in-process, no Claude) ───────────────────────────
+practiceLocalBtn.addEventListener('click', async () => {
+  if (!storyData) return;
+  const meta = langMeta(currentLang);
+  const DEFAULT_LABEL = '✏️ Generate Practice Locally';
+
+  practiceLocalBtn.disabled = true;
+  practiceLocalLabel.textContent = 'Generating…';
+  practiceLocalSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`${API}/practice-sheet/local`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        language:      currentLang,
+        book_title_zh: storyData[meta.title_native_field] || '',
+        book_title_en: storyData.book_title_en || sharedStoryInput.value.trim(),
+        pages:         storyData.pages,
+      }),
+    });
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))).detail ?? res.statusText;
+      throw new Error(detail);
+    }
+    // Stream the PDF blob straight to a download
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(storyData.book_title_en || 'practice').replace(/[^a-z0-9]+/gi, '_')}_practice.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    practiceLocalLabel.textContent = '✓ Downloaded!';
+    setTimeout(() => { practiceLocalLabel.textContent = DEFAULT_LABEL; }, 2500);
+  } catch (err) {
+    alert(`Local practice sheet failed: ${err.message}`);
+    practiceLocalLabel.textContent = DEFAULT_LABEL;
+  } finally {
+    practiceLocalBtn.disabled = false;
+    practiceLocalSpinner.classList.add('hidden');
+  }
+});
 
 
 

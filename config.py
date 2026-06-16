@@ -11,6 +11,7 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 MESHY_API_KEY  = os.getenv("MESHY_API_KEY", "")
 FIGURES_DIR    = os.getenv("FIGURES_DIR", "./output/figures")
+PRACTICE_DIR   = os.getenv("PRACTICE_DIR", "./output/practice")
 KEYS_FILE      = os.getenv("KEYS_FILE", "./config.json")
 
 # Child-safety guardrail explicitly appended to every Style Prompt used for

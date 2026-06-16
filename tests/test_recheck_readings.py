@@ -54,8 +54,8 @@ VALID_ZH_PAGE = {
 # ───────────────────────────────────────────────────────────────────────────
 
 def test_decompose_tool_default_schema_unchanged():
-    """Default call must reproduce the original /decompose schema:
-    pages minItems==maxItems==10, page maximum==10, image_prompt in BOTH
+    """Default call must reproduce the /decompose schema:
+    pages minItems==maxItems==11, page maximum==11, image_prompt in BOTH
     properties and required."""
     lang = languages.get("zh")
     tool = main._decompose_tool(lang)
@@ -63,13 +63,13 @@ def test_decompose_tool_default_schema_unchanged():
     assert tool["name"] == "submit_storybook"
 
     pages = tool["input_schema"]["properties"]["pages"]
-    assert pages["minItems"] == 10
-    assert pages["maxItems"] == 10
+    assert pages["minItems"] == 11
+    assert pages["maxItems"] == 11
 
     page_props = pages["items"]["properties"]
     page_required = pages["items"]["required"]
 
-    assert page_props["page"]["maximum"] == 10
+    assert page_props["page"]["maximum"] == 11
     assert "image_prompt" in page_props
     assert "image_prompt" in page_required
 

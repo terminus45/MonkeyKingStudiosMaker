@@ -15,17 +15,20 @@ from typing import Optional
 import anthropic
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import (
     FIGURES_DIR,
     OUTPUT_DIR,
+    PRACTICE_DIR,
     SAFETY_STYLE_SUFFIX,
 )
 import gemini_generator
 import meshy_generator
+import practice_sheet as practice_sheet_mod
+import practice_sheet_local as practice_sheet_local_mod
 import languages
 import settings_store
 
@@ -35,7 +38,10 @@ settings_store.load()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # SD pipeline removed; nothing to load at startup
+    # Ensure output directories exist
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    os.makedirs(PRACTICE_DIR, exist_ok=True)
     yield
 
 
@@ -220,6 +226,7 @@ class DecomposeRequest(BaseModel):
     style_suffix: Optional[str] = ""
     character: Optional[str] = ""          # shared main-character description
     language: Optional[str] = "zh"
+    page_count: Optional[int] = 11
     anthropic_key: Optional[str] = None   # per-request override (mobile clients)
 
 
@@ -270,8 +277,8 @@ def list_languages():
 def _decompose_tool(
     lang: dict,
     *,
-    min_pages: int = 10,
-    max_pages: int = 10,
+    min_pages: int = 11,
+    max_pages: int = 11,
     include_image_prompt: bool = True,
 ) -> dict:
     """Build a tool definition that constrains Claude's output to the storybook schema
@@ -284,7 +291,7 @@ def _decompose_tool(
         Language registry entry.
     min_pages / max_pages : int
         Enforced array size for the pages array and the per-page page integer maximum.
-        Default 10/10 so the existing /decompose call is unchanged.
+        Default 11/11 — the default storybook length used by /decompose.
     include_image_prompt : bool
         When False, image_prompt is omitted from the page schema (used by
         /recheck-readings, which preserves image_prompt client-side).
@@ -371,6 +378,9 @@ def decompose(req: DecomposeRequest):
         )
 
     lang = languages.get(req.language)
+    # Clamp page_count to the allowed set early — must be defined before invention
+    # instruction and tool build reference it.
+    page_count = req.page_count if req.page_count in (11, 15, 19) else 11
     client = anthropic.Anthropic(api_key=api_key)
 
     concept_text = (req.concept or "").strip()
@@ -382,7 +392,7 @@ def decompose(req: DecomposeRequest):
     else:
         # No concept — invent a plot from the character description alone
         user_content = (
-            "Create an original, warm, age-appropriate 10-page picture-book story "
+            f"Create an original, warm, age-appropriate {page_count}-page picture-book story "
             "for ages 4–8 with a clear beginning, middle, and end, and a fitting title. "
             "Invent a simple plot that suits the following main character."
         )
@@ -396,13 +406,15 @@ def decompose(req: DecomposeRequest):
         )
     safe_style = _safe_style(req.style_suffix)
     user_content += f"\n\nApply this visual style to every image_prompt: {safe_style}"
+    # Unconditional count instruction — applies to both the concept and character-only paths.
+    user_content += f"\n\nDecompose this into exactly {page_count} pages, numbered 1 to {page_count}."
 
-    tool = _decompose_tool(lang)
+    tool = _decompose_tool(lang, min_pages=page_count, max_pages=page_count)
 
     try:
         with client.messages.stream(
             model="claude-opus-4-8",
-            max_tokens=8192,
+            max_tokens=16384,
             system=[
                 {
                     "type": "text",
@@ -516,7 +528,7 @@ def recheck_readings(req: RecheckRequest):
     try:
         with client.messages.stream(
             model="claude-opus-4-8",
-            max_tokens=8192,
+            max_tokens=16384,
             system=[
                 {
                     "type": "text",
@@ -1299,6 +1311,192 @@ def figure_model(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Model file not found.")
     return FileResponse(path, media_type="model/gltf-binary")
+
+
+# ── Practice Sheet ────────────────────────────────────────────────────────────
+# Chinese-only feature: Claude's code-execution sandbox runs ReportLab + WQY font
+# to produce a 田字格 (tian zi ge) writing-practice PDF, retrieved via the Files API.
+# Async job pattern mirrors the Figure Maker job store.
+
+_practice_jobs: dict[str, dict] = {}
+_practice_jobs_lock = threading.Lock()
+
+
+def _practice_job_create(job_id: str, title_en: str = "") -> dict:
+    record = {
+        "job_id": job_id,
+        "stage": "prompting",
+        "error": None,
+        "pdf_filename": None,
+        "title_en": title_en,
+    }
+    with _practice_jobs_lock:
+        _practice_jobs[job_id] = record
+    return record
+
+
+def _practice_job_update(job_id: str, patch: dict) -> None:
+    with _practice_jobs_lock:
+        if job_id in _practice_jobs:
+            _practice_jobs[job_id].update(patch)
+
+
+def _practice_job_read(job_id: str) -> Optional[dict]:
+    with _practice_jobs_lock:
+        rec = _practice_jobs.get(job_id)
+        return dict(rec) if rec else None
+
+
+class PracticeSheetRequest(BaseModel):
+    language: Optional[str] = "zh"
+    book_title_en: str
+    book_title_zh: str
+    book_title_pinyin: str
+    zh_text: str
+    anthropic_key: Optional[str] = None
+
+
+def _run_practice_job(
+    job_id: str,
+    title_en: str,
+    title_zh: str,
+    title_pinyin: str,
+    zh_text: str,
+    api_key: str,
+) -> None:
+    """Background worker: call Claude code-execution to generate the practice PDF."""
+    try:
+        _practice_job_update(job_id, {"stage": "executing"})
+        pdf_bytes = practice_sheet_mod.generate_practice_pdf_bytes(
+            title_en=title_en,
+            title_zh=title_zh,
+            title_pinyin=title_pinyin,
+            zh_text=zh_text,
+            api_key=api_key,
+        )
+        os.makedirs(PRACTICE_DIR, exist_ok=True)
+        pdf_path = os.path.join(PRACTICE_DIR, f"{job_id}.pdf")
+        with open(pdf_path, "wb") as fh:
+            fh.write(pdf_bytes)
+        _practice_job_update(job_id, {
+            "stage": "done",
+            "pdf_filename": f"{job_id}.pdf",
+        })
+    except anthropic.APIError as exc:
+        _practice_job_update(job_id, {
+            "stage": "error",
+            "error": f"Anthropic API error: {exc}",
+        })
+    except Exception as exc:
+        _practice_job_update(job_id, {
+            "stage": "error",
+            "error": str(exc),
+        })
+
+
+@app.post("/practice-sheet")
+def practice_sheet_generate(req: PracticeSheetRequest):
+    """Start a practice-sheet generation job. Returns {job_id}. Chinese-only."""
+    if (req.language or "zh") != "zh":
+        raise HTTPException(status_code=400, detail="Practice sheets are Chinese-only.")
+
+    resolved_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+    if not resolved_key:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY not set on server.",
+        )
+
+    job_id = uuid.uuid4().hex
+    _practice_job_create(job_id, title_en=req.book_title_en)
+
+    thread = threading.Thread(
+        target=_run_practice_job,
+        args=(
+            job_id,
+            req.book_title_en,
+            req.book_title_zh,
+            req.book_title_pinyin,
+            req.zh_text,
+            resolved_key,
+        ),
+        daemon=True,
+    )
+    thread.start()
+
+    return {"job_id": job_id}
+
+
+@app.get("/practice-sheet/status/{job_id}")
+def practice_sheet_status(job_id: str):
+    """Poll the status of a practice-sheet generation job."""
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format.")
+    record = _practice_job_read(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return record
+
+
+@app.get("/practice-sheet/download/{job_id}")
+def practice_sheet_download(job_id: str):
+    """Download the generated practice PDF. Returns 409 if job is not done yet."""
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format.")
+    record = _practice_job_read(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if record["stage"] != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not done yet (stage: {record['stage']}).",
+        )
+    pdf_path = os.path.join(PRACTICE_DIR, record["pdf_filename"])
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="PDF file not found on server.")
+    # Derive a human-friendly filename from the book's English title (slug style)
+    raw_title = record.get("title_en", "") or ""
+    slug = re.sub(r"[^a-z0-9]+", "_", raw_title.lower()).strip("_") or job_id
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{slug}_practice.pdf",
+    )
+
+
+class LocalPracticeRequest(BaseModel):
+    language: Optional[str] = "zh"
+    book_title_zh: Optional[str] = ""
+    book_title_en: Optional[str] = ""
+    pages: list[PageData] = []
+
+
+@app.post("/practice-sheet/local")
+def practice_sheet_local(req: LocalPracticeRequest):
+    """Generate a Chinese character writing-practice PDF in-process (no Claude).
+
+    Frequency-counts the story's hanzi, picks the 10 most frequent, and renders
+    a US-Letter sheet with 8 田字格 practice boxes per character (box 1 a faded
+    trace) showing the character + its pinyin. Synchronous — returns the PDF.
+    """
+    if (req.language or "zh") != "zh":
+        raise HTTPException(status_code=400, detail="Practice sheets are Chinese-only.")
+    pages = [p.model_dump() for p in req.pages]
+    chars = practice_sheet_local_mod.top_characters(pages, n=10)
+    if not chars:
+        raise HTTPException(status_code=400, detail="No Chinese characters found in this story.")
+    try:
+        pdf = practice_sheet_local_mod.render_pdf_bytes(
+            req.book_title_zh or "", req.book_title_en or "", chars, boxes=8,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    slug = re.sub(r"[^a-z0-9]+", "_", (req.book_title_en or "practice").lower()).strip("_") or "practice"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{slug}_practice.pdf"'},
+    )
 
 
 # ── Frontend static files (must be last — catches everything not matched above) ──

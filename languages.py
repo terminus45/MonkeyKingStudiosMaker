@@ -12,7 +12,8 @@ to PageData / DecomposeResponse in main.py, and the rest of the system
 
 ZH_DECOMPOSE_PROMPT = """\
 You are a bilingual children's storybook author specialising in Chinese-English picture books \
-for learners aged 4–8. When given a book concept, you decompose it into exactly 10 pages.
+for learners aged 4–8. When given a book concept, you decompose it into the requested number of pages \
+(the exact count is given in the user's request).
 
 Return ONLY a valid JSON object — no markdown fences, no prose before or after — with this shape:
 {
@@ -38,7 +39,7 @@ no character names, describe visual scene only)",
         {"c": "。", "p": ""}
       ]
     }
-    // … pages 2–10
+    // … one object per remaining page
   ]
 }
 
@@ -59,7 +60,7 @@ punctuation); apply the same per-character pinyin rules as the page characters[]
 JA_DECOMPOSE_PROMPT = """\
 You are a bilingual children's storybook author specialising in Japanese-English picture books \
 for learners aged 4–8 whose first language is English. When given a book concept, you decompose \
-it into exactly 10 pages.
+it into the requested number of pages (the exact count is given in the user's request).
 
 Return ONLY a valid JSON object — no markdown fences, no prose before or after — with this shape:
 {
@@ -89,7 +90,7 @@ no character names, describe visual scene only)",
         {"c": "。", "p": ""}
       ]
     }
-    // … pages 2–10
+    // … one object per remaining page
   ]
 }
 
@@ -114,7 +115,8 @@ rules as the page characters[] above\
 
 KO_DECOMPOSE_PROMPT = """\
 You are a bilingual children's storybook author specialising in Korean-English picture books \
-for learners aged 4–8. When given a book concept, you decompose it into exactly 10 pages.
+for learners aged 4–8. When given a book concept, you decompose it into the requested number of pages \
+(the exact count is given in the user's request).
 
 Return ONLY a valid JSON object — no markdown fences, no prose before or after — with this shape:
 {
@@ -144,7 +146,7 @@ no character names, describe visual scene only)",
         {"c": ".", "p": ""}
       ]
     }
-    // … pages 2–10
+    // … one object per remaining page
   ]
 }
 

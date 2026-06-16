@@ -87,6 +87,32 @@ Story Prompt is now optional on all three pages (including Book Builder). The `P
 
 Stable Diffusion, LoRA, and local model management have been removed. Image generation uses the Gemini API exclusively. The active model is selected from the **Settings** page (`#settingsCgModel`, persisted to `localStorage['monkeyking_cg_draft'].model`) and shared by both Character Generator and Book Builder.
 
+The Settings page also exposes a **Book Length** select (`#settingsPages`, persisted to `localStorage['monkeyking_bb_pages']`) with options 11/15/19 pages (default 11). This controls the `page_count` sent to `/decompose` for new books. Open/saved books keep their existing length; `/recheck-readings` is not affected.
+
+Also, the **Language** select (`#settingsLang`, persisted to `localStorage['monkeyking_bb_lang']`) controls the storybook language for new books.
+
+### Practice Sheet (Chinese only)
+
+A "🖌 Create Practice Sheet" button appears in the Export section of Book Builder when the active language is Chinese (`code === 'zh'`). It is hidden for Japanese and Korean via `setLanguage()`.
+
+On click, the frontend POSTs to `POST /practice-sheet` with `book_title_en`, `book_title_zh`, `book_title_pinyin`, and the joined Chinese page text. The backend spawns a daemon worker thread and returns `{job_id}`. The frontend polls `GET /practice-sheet/status/{job_id}` every 2 seconds; on `done`, it navigates an anchor to `GET /practice-sheet/download/{job_id}` which serves the PDF as `application/pdf`.
+
+The worker calls `practice_sheet.generate_practice_pdf_bytes()` in `practice_sheet.py`. That function sends a fixed instruction block (田字格 layout spec, font path, UP TO 8 characters, etc.) plus the story context to `claude-opus-4-8` with `tools=[{"type": "code_execution_20260120", "name": "code_execution"}]` (no `tool_choice` — server tools must not be force-named). Claude runs ReportLab 4.2.2 and the WQY ZenHei font (`/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc`, subfontIndex 0) inside Anthropic's sandbox to produce the PDF, then verifies it with `pdftoppm`. The app collects `file_id` values from every `bash_code_execution_tool_result` block across all `pause_turn` continuations (capped at 6 turns / 150 s), resolves which file is the PDF via `client.beta.files.retrieve_metadata()` (newest → oldest, `.filename` ending `.pdf` or `mime_type == "application/pdf"`), and downloads via `client.beta.files.download(id).read()`. The app has no dependency on reportlab — the PDF is generated entirely inside Claude's sandbox.
+
+PDFs are saved to `PRACTICE_DIR` (`./output/practice/`, configurable via env). Job records are held in `_practice_jobs` (in-memory, mirrors `_figure_jobs`). Stages: `prompting → executing → done` (`error` on failure). Key resolution: `req.anthropic_key → settings_store.get_key("ANTHROPIC_API_KEY") → env`; 503 is returned before spawning if no key.
+
+Three routes (declared before the static mount): `POST /practice-sheet`, `GET /practice-sheet/status/{job_id}`, `GET /practice-sheet/download/{job_id}`.
+
+### Practice Sheet — local (Chinese only, no Claude)
+
+A second button "✏️ Generate Practice Locally" sits next to the cloud one (same zh-only gating in `setLanguage()`). It generates the PDF **in-process with ReportLab — no Claude call, no dictionary**. `POST /practice-sheet/local` (synchronous; declared before the static mount) accepts `{language, book_title_zh, book_title_en, pages}` and returns the PDF directly as `application/pdf` (rejects non-zh with 400). This is the one path that adds a real dependency: **`reportlab`** (in `requirements.txt`); the cloud path does not.
+
+`practice_sheet_local.py` does the work:
+- `top_characters(pages, n=10)` — frequency-counts the hanzi across the story and returns the N most frequent as `(char, pinyin)`. Pinyin comes from each page's `characters[]` (`{c,p}`) when present; **for books without that array (older Gallery books saved before per-character tracking), it falls back to deriving per-character pinyin from `zh` + `pinyin`** via a Python port of `storybook_print.js`'s `_splitPinyinSyllables`/`_buildCharacters`. Isolated-character pinyin is lowercased.
+- `render_pdf_bytes(title_zh, title_en, chars, boxes=8)` — renders a US-Letter sheet: header (Chinese title + "Writing Practice" + English subtitle + Name/Date), then one row per character showing the character + pinyin and 8 田字格 boxes (box 1 a faded trace, the rest blank with dashed crosshairs), and a footer. A host CJK font that also covers pinyin tone marks is discovered at import time (`STHeiti`/`Hiragino`/`Arial Unicode` on macOS, `wqy-zenhei` on Linux) — **no bundled font**.
+
+This means the local sheet works both for freshly-built books (authoritative `characters[]`) and for any loaded Gallery book (derived pinyin).
+
 ### Export
 
 `storybook_print.js` (shared by both print and HTML export flows) fetches each page's image, converts to base64, and assembles a self-contained HTML document with inline styles and images — no server round-trips at read time.

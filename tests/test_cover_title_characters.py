@@ -104,7 +104,7 @@ def test_decompose_tool_has_book_title_characters(code, include_image_prompt):
 
 
 def test_decompose_tool_default_still_has_title_characters():
-    """The default /decompose call (min=max=10, include_image_prompt=True) also
+    """The default /decompose call (min=max=11, include_image_prompt=True) also
     exposes book_title_characters and keeps the original required set intact."""
     lang = languages.get("zh")
     tool = main._decompose_tool(lang)

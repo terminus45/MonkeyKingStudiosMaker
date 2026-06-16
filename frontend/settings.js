@@ -16,6 +16,8 @@ const settingsCgAspect   = document.getElementById('settingsCgAspect');
 const settingsCgAspectStatus = document.getElementById('settingsCgAspectStatus');
 const settingsLang       = document.getElementById('settingsLang');
 const settingsLangStatus = document.getElementById('settingsLangStatus');
+const settingsPages      = document.getElementById('settingsPages');
+const settingsPagesStatus = document.getElementById('settingsPagesStatus');
 
 // Key row configuration
 const KEY_ROWS = [
@@ -337,6 +339,43 @@ settingsLang.addEventListener('change', () => {
   showLangSavedChip();
 });
 
+// ── Book length select — Generation Settings ──────────────────────────────────
+const PAGES_KEY = 'monkeyking_bb_pages';
+let _pagesSavedTimer = null;
+
+function showPagesSavedChip() {
+  settingsPagesStatus.dataset.state = 'set-config';
+  settingsPagesStatus.textContent   = 'Saved';
+  if (_pagesSavedTimer) clearTimeout(_pagesSavedTimer);
+  _pagesSavedTimer = setTimeout(() => {
+    settingsPagesStatus.dataset.state = 'unknown';
+    settingsPagesStatus.textContent   = '';
+  }, 2000);
+}
+
+// Restore the saved page count on load (default 11 when absent).
+// Applies to new decompose only; open books keep their existing length.
+function restorePages() {
+  try {
+    const stored = localStorage.getItem(PAGES_KEY);
+    if (stored) {
+      settingsPages.value = stored;
+      // If the stored value isn't one of the 3 options, fall back to 11
+      if (settingsPages.value !== stored) settingsPages.value = '11';
+    } else {
+      settingsPages.value = '11';
+    }
+  } catch { /* quota / private-mode */ }
+}
+
+// Persist page count selection to its own key
+settingsPages.addEventListener('change', () => {
+  try {
+    localStorage.setItem(PAGES_KEY, settingsPages.value);
+  } catch { /* quota / private-mode */ }
+  showPagesSavedChip();
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
@@ -344,6 +383,7 @@ settingsLang.addEventListener('change', () => {
   await loadGeminiModels();
   restoreAspect();
   restoreLang();
+  restorePages();
 })();
 
 setInterval(checkHealth, 30_000);

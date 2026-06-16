@@ -251,6 +251,24 @@
           </div>
         </div>
 
+        <!-- Book length row -->
+        <div class="settings-key-row">
+          <div class="settings-key-label-group">
+            <label class="settings-key-label" for="settingsPages">Book Length</label>
+            <span class="settings-key-hint">How many pages new storybooks have.</span>
+            <span class="settings-key-hint">Applies to new books. Open books keep their length.</span>
+            <span class="settings-key-hint">More pages means more image generations.</span>
+          </div>
+          <div class="settings-model-select-group">
+            <select id="settingsPages" aria-label="Page count for new storybooks">
+              <option value="11" selected>11</option>
+              <option value="15">15</option>
+              <option value="19">19</option>
+            </select>
+            <span class="settings-status-chip" id="settingsPagesStatus" data-state="unknown" aria-live="polite"></span>
+          </div>
+        </div>
+
       </div><!-- /.settings-key-list -->
 
     </div><!-- /.settings-card (Generation Settings) -->
