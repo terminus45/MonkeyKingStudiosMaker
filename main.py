@@ -216,7 +216,7 @@ def list_gemini_models():
 
 
 class DecomposeRequest(BaseModel):
-    concept: str
+    concept: Optional[str] = ""
     style_suffix: Optional[str] = ""
     character: Optional[str] = ""          # shared main-character description
     language: Optional[str] = "zh"
@@ -364,13 +364,32 @@ def decompose(req: DecomposeRequest):
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
 
+    if not (req.concept or "").strip() and not (req.character or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Provide a Character Description or a Story Prompt.",
+        )
+
     lang = languages.get(req.language)
     client = anthropic.Anthropic(api_key=api_key)
 
-    user_content = req.concept.strip()
-    if req.character and req.character.strip():
+    concept_text = (req.concept or "").strip()
+    character_text = (req.character or "").strip()
+
+    if concept_text:
+        # Concept provided — use it directly as the story seed
+        user_content = concept_text
+    else:
+        # No concept — invent a plot from the character description alone
+        user_content = (
+            "Create an original, warm, age-appropriate 10-page picture-book story "
+            "for ages 4–8 with a clear beginning, middle, and end, and a fitting title. "
+            "Invent a simple plot that suits the following main character."
+        )
+
+    if character_text:
         user_content += (
-            f"\n\nThe protagonist is: {req.character.strip()}. "
+            f"\n\nThe protagonist is: {character_text}. "
             "This same character must appear on every page and be described "
             "CONSISTENTLY (same appearance, outfit, colors) in every image_prompt, "
             "using visual description only — never the character's name."

@@ -4,17 +4,16 @@
 const API = window.location.origin;
 
 // ── Shared input field map for this page ────────────────────────────────────
-// character = cgDescInput (existing), style = cgStyleInput (existing),
-// story     = cgStoryInput (new)
-const CG_FIELD_MAP = { character: 'cgDescInput', style: 'cgStyleInput', story: 'cgStoryInput' };
+// Standardized IDs matching the canonical shared-inputs block on all 3 pages.
+const CG_FIELD_MAP = { character: 'sharedCharacterInput', story: 'sharedStoryInput', style: 'sharedStyleInput' };
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
 
-const cgDescInput     = document.getElementById('cgDescInput');
-const cgStoryInput    = document.getElementById('cgStoryInput');
-const cgStyleInput    = document.getElementById('cgStyleInput');
+const sharedCharacterInput = document.getElementById('sharedCharacterInput');
+const sharedStoryInput     = document.getElementById('sharedStoryInput');
+const sharedStyleInput     = document.getElementById('sharedStyleInput');
 
 const cgGenerateBtn   = document.getElementById('cgGenerateBtn');
 const cgGenerateLabel = document.getElementById('cgGenerateLabel');
@@ -72,10 +71,21 @@ async function checkHealth() {
 // They are persisted in this localStorage draft and read here at generate time.
 const CG_DRAFT_KEY = 'monkeyking_cg_draft';
 
+// Auto-expand the collapsible <details> when Story or Style has content.
+function autoExpandIfContent() {
+  var story   = document.getElementById('sharedStoryInput');
+  var style   = document.getElementById('sharedStyleInput');
+  var details = document.getElementById('sharedMoreOptions');
+  if (details && ((story && story.value.trim()) || (style && style.value.trim()))) {
+    details.open = true;
+  }
+}
+
 // ── Shared inputs — unified via SharedInputs.bindFields ──────────────────────
 // CG_FIELD_MAP declared at top of file; populate:true (default), debounce:300
 function wireSharedInputListeners() {
-  SharedInputs.bindFields(CG_FIELD_MAP, { debounce: 300 });
+  SharedInputs.bindFields(CG_FIELD_MAP, { debounce: 300, onRemote: function() { autoExpandIfContent(); } });
+  autoExpandIfContent();
 }
 
 // ── State helpers ───────────────────────────────────────────────────────────
@@ -208,13 +218,13 @@ cgClearStripBtn.addEventListener('click', () => {
 
 // ── Generate ─────────────────────────────────────────────────────────────────
 cgGenerateBtn.addEventListener('click', async () => {
-  const character = cgDescInput.value.trim();
-  const story     = cgStoryInput.value.trim();
-  const style     = cgStyleInput.value.trim();
+  const character = sharedCharacterInput.value.trim();
+  const story     = sharedStoryInput.value.trim();
+  const style     = sharedStyleInput.value.trim();
 
   // Validate — character is required
   if (!character) {
-    shakeField(cgDescInput);
+    shakeField(sharedCharacterInput);
     return;
   }
 
@@ -284,7 +294,7 @@ cgGenerateBtn.addEventListener('click', async () => {
 // ── Use as Book Cover ────────────────────────────────────────────────────────
 cgUseAsCoverBtn.addEventListener('click', () => {
   const filename    = cgUseAsCoverBtn.dataset.filename || currentFilename;
-  const description = cgDescInput.value.trim();
+  const description = sharedCharacterInput.value.trim();
 
   if (!filename) return;
 
@@ -332,9 +342,9 @@ cgCreateFigureBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         filename: currentFilename,
-        prompt:   cgDescInput.value.trim(),
-        style:    cgStyleInput.value.trim(),
-        story:    cgStoryInput.value.trim(),
+        prompt:   sharedCharacterInput.value.trim(),
+        style:    sharedStyleInput.value.trim(),
+        story:    sharedStoryInput.value.trim(),
       }),
     });
 

@@ -36,9 +36,9 @@ let currentLang = DEFAULT_LANG;
 let lastCheckApplied = false;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
-const conceptInput      = document.getElementById('conceptInput');
-const characterInput    = document.getElementById('characterInput');
-const stylePromptInput  = document.getElementById('stylePromptInput');
+const sharedStoryInput     = document.getElementById('sharedStoryInput');
+const sharedCharacterInput = document.getElementById('sharedCharacterInput');
+const sharedStyleInput     = document.getElementById('sharedStyleInput');
 const decomposeHint   = document.getElementById('decomposeHint');
 const autoGenBtn      = document.getElementById('autoGenBtn');
 const autoGenLabel    = document.getElementById('autoGenLabel');
@@ -180,8 +180,13 @@ autoGenBtn.addEventListener('click', async () => {
 });
 
 async function runDecompose() {
-  const concept = conceptInput.value.trim();
-  if (!concept) { conceptInput.focus(); return false; }
+  const concept    = sharedStoryInput.value.trim();
+  const character  = sharedCharacterInput.value.trim();
+  if (!concept && !character) {
+    decomposeHint.textContent = 'Add a Character Description or a Story Prompt to begin.';
+    sharedCharacterInput.focus();
+    return false;
+  }
 
   setDecomposeLoading(true);
   decomposeHint.textContent = 'Claude is writing your storybook… this takes ~20 seconds.';
@@ -192,9 +197,9 @@ async function runDecompose() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         concept,
-        style_suffix: stylePromptInput.value.trim(),
+        style_suffix: sharedStyleInput.value.trim(),
         language: currentLang,
-        character: characterInput.value.trim(),
+        character,
       }),
     });
     if (!res.ok) {
@@ -362,7 +367,7 @@ async function generateSinglePage(pageNum) {
 
   const genBody = {
     prompt:              current.image_prompt,
-    style_prompt:        stylePromptInput.value.trim(),
+    style_prompt:        sharedStyleInput.value.trim(),
     provider:            'gemini',
     gemini_model:        getGeminiModel(),
     gemini_aspect_ratio: geminiAR,
@@ -495,7 +500,7 @@ queueBtn.addEventListener('click', async () => {
     try {
       const genBody = {
         prompt:              current.image_prompt,
-        style_prompt:        stylePromptInput.value.trim(),
+        style_prompt:        sharedStyleInput.value.trim(),
         provider:            'gemini',
         gemini_model:        getGeminiModel(),
         gemini_aspect_ratio: geminiAR,
@@ -684,9 +689,9 @@ function currentProject() {
   return {
     version:          1,
     saved_at:         new Date().toISOString(),
-    concept:          conceptInput.value.trim(),
-    character:        characterInput.value.trim(),
-    style_prompt:     stylePromptInput.value.trim(),
+    concept:          sharedStoryInput.value.trim(),
+    character:        sharedCharacterInput.value.trim(),
+    style_prompt:     sharedStyleInput.value.trim(),
     story:            { ...storyData, language: currentLang, pages: editedPages },
     generated_images: Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
@@ -993,9 +998,9 @@ function saveState() {
   const editedPages = storyData.pages.map(pg => readCard(pg.page));
   const state = {
     version:             1,
-    concept:             conceptInput.value.trim(),
-    character:           characterInput.value.trim(),
-    style_prompt:        stylePromptInput.value.trim(),
+    concept:             sharedStoryInput.value.trim(),
+    character:           sharedCharacterInput.value.trim(),
+    style_prompt:        sharedStyleInput.value.trim(),
     story:               { ...storyData, language: currentLang, pages: editedPages },
     generated_images:    Object.fromEntries(
       Object.entries(generatedImages).map(([k, v]) => [k, v.filename])
@@ -1014,9 +1019,9 @@ function clearProject({ keepInputs = false } = {}) {
   // keepInputs leaves the shared Character/Style/Story fields (and the shared
   // store) untouched — used when starting a fresh book from synced inputs.
   if (!keepInputs) {
-    conceptInput.value     = '';
-    characterInput.value   = '';
-    stylePromptInput.value = '';
+    sharedStoryInput.value     = '';
+    sharedCharacterInput.value = '';
+    sharedStyleInput.value     = '';
     // Clear the character field in shared store too
     SharedInputs.patch({ character: '' });
   }
@@ -1036,9 +1041,9 @@ function clearProject({ keepInputs = false } = {}) {
 function restoreSharedInputs() {
   const s = SharedInputs.read();
   // Set values directly — never dispatch synthetic input events
-  conceptInput.value     = s.story;
-  characterInput.value   = s.character;
-  stylePromptInput.value = s.style;
+  sharedStoryInput.value     = s.story;
+  sharedCharacterInput.value = s.character;
+  sharedStyleInput.value     = s.style;
 }
 
 // Wire the live listener via bindFields. populate:false because BB populates via
@@ -1047,9 +1052,20 @@ function restoreSharedInputs() {
 // Called AFTER all reconciliation branches complete.
 function wireSharedInputListeners() {
   SharedInputs.bindFields(
-    { character: 'characterInput', story: 'conceptInput', style: 'stylePromptInput' },
-    { debounce: 0, populate: false }
+    { character: 'sharedCharacterInput', story: 'sharedStoryInput', style: 'sharedStyleInput' },
+    { debounce: 0, populate: false, onRemote: function() { autoExpandIfContent(); } }
   );
+}
+
+// Auto-expand the collapsible <details> when Story or Style has content.
+// Called after populate and after each reconciliation branch completes.
+function autoExpandIfContent() {
+  var story   = document.getElementById('sharedStoryInput');
+  var style   = document.getElementById('sharedStyleInput');
+  var details = document.getElementById('sharedMoreOptions');
+  if (details && ((story && story.value.trim()) || (style && style.value.trim()))) {
+    details.open = true;
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1074,9 +1090,9 @@ function wireSharedInputListeners() {
       // After gallery load, push the loaded values INTO the shared store
       // so other tabs see the loaded book — but never overwrite project load FROM shared store
       SharedInputs.patch({
-        story:     conceptInput.value,
-        style:     stylePromptInput.value,
-        character: characterInput.value,
+        story:     sharedStoryInput.value,
+        style:     sharedStyleInput.value,
+        character: sharedCharacterInput.value,
       });
     } catch (err) {
       console.warn('Could not load gallery book:', err.message);
@@ -1100,9 +1116,9 @@ function wireSharedInputListeners() {
       if (keepPrevious) {
         await restoreState(savedState);
         SharedInputs.patch({
-          story:     conceptInput.value,
-          style:     stylePromptInput.value,
-          character: characterInput.value,
+          story:     sharedStoryInput.value,
+          style:     sharedStyleInput.value,
+          character: sharedCharacterInput.value,
         });
       } else {
         // Start fresh: drop the saved book but keep the synced inputs intact.
@@ -1113,9 +1129,9 @@ function wireSharedInputListeners() {
       // No conflict — restore the saved book and mirror it to the shared store.
       await restoreState(savedState);
       SharedInputs.patch({
-        story:     conceptInput.value,
-        style:     stylePromptInput.value,
-        character: characterInput.value,
+        story:     sharedStoryInput.value,
+        style:     sharedStyleInput.value,
+        character: sharedCharacterInput.value,
       });
     } else {
       // 3. No saved story — restore from shared store
@@ -1125,6 +1141,9 @@ function wireSharedInputListeners() {
 
   // 4. Wire live-sync listeners
   wireSharedInputListeners();
+
+  // 5. Auto-expand collapsible if Story or Style has content after all reconciliation branches
+  autoExpandIfContent();
 })();
 
 async function restoreProject(project) {
@@ -1137,9 +1156,9 @@ async function restoreProject(project) {
   const projectLang = project.story.language || project.language || DEFAULT_LANG;
   setLanguage(projectLang, { rerender: false, save: false });
 
-  conceptInput.value     = project.concept      ?? '';
-  characterInput.value   = project.character    ?? '';
-  stylePromptInput.value = project.style_prompt  ?? '';
+  sharedStoryInput.value     = project.concept      ?? '';
+  sharedCharacterInput.value = project.character    ?? '';
+  sharedStyleInput.value     = project.style_prompt  ?? '';
   storyData = project.story;
 
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);

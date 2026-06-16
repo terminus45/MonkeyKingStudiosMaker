@@ -7,7 +7,7 @@ import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 const API = window.location.origin;
 
 // window.SharedInputs is set by shared_inputs.js (non-module, loaded before this module)
-// Field map: character=fmPromptInput (existing), style=fmStyleInput (new), story=fmStoryInput (new)
+// Field map: standardized IDs matching canonical shared-inputs block on all 3 pages.
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 const statusDot            = document.getElementById('statusDot');
@@ -16,9 +16,9 @@ const statusLabel          = document.getElementById('statusLabel');
 const fmBoltMascot         = document.getElementById('fmBoltMascot');
 const fmBoltText           = document.getElementById('fmBoltText');
 
-const fmPromptInput        = document.getElementById('fmPromptInput');
-const fmStoryInput         = document.getElementById('fmStoryInput');
-const fmStyleInput         = document.getElementById('fmStyleInput');
+const sharedCharacterInput = document.getElementById('sharedCharacterInput');
+const sharedStoryInput     = document.getElementById('sharedStoryInput');
+const sharedStyleInput     = document.getElementById('sharedStyleInput');
 const fmGenerateBtn        = document.getElementById('fmGenerateBtn');
 const fmGenerateLabel      = document.getElementById('fmGenerateLabel');
 const fmSpinner            = document.getElementById('fmSpinner');
@@ -119,7 +119,7 @@ function setGenerating(on) {
 }
 
 function setInputsDisabled(on) {
-  fmPromptInput.disabled = on;
+  sharedCharacterInput.disabled = on;
 }
 
 function showEmpty() {
@@ -180,23 +180,34 @@ function clearFmJob() {
   try { localStorage.removeItem(FM_JOB_KEY); } catch { /* private-mode */ }
 }
 
+// Auto-expand the collapsible <details> when Story or Style has content.
+function autoExpandIfContent() {
+  var story   = document.getElementById('sharedStoryInput');
+  var style   = document.getElementById('sharedStyleInput');
+  var details = document.getElementById('sharedMoreOptions');
+  if (details && ((story && story.value.trim()) || (style && style.value.trim()))) {
+    details.open = true;
+  }
+}
+
 // ── Shared inputs — unified via SharedInputs.bindFields ──────────────────────
 // bindFields handles populate + cross-tab sync.
 // bindFields must not touch .disabled — setInputsDisabled() owns that.
 function wireSharedInputListeners() {
   window.SharedInputs.bindFields(
-    { character: 'fmPromptInput', story: 'fmStoryInput', style: 'fmStyleInput' },
-    { debounce: 300 }
+    { character: 'sharedCharacterInput', story: 'sharedStoryInput', style: 'sharedStyleInput' },
+    { debounce: 300, onRemote: function() { autoExpandIfContent(); } }
   );
+  autoExpandIfContent();
 }
 
 // ── Generate ─────────────────────────────────────────────────────────────────
 fmGenerateBtn.addEventListener('click', async () => {
-  const prompt = fmPromptInput.value.trim();
+  const prompt = sharedCharacterInput.value.trim();
   if (!prompt) {
-    fmPromptInput.style.borderColor = 'var(--terracotta)';
-    fmPromptInput.focus();
-    setTimeout(() => { fmPromptInput.style.borderColor = ''; }, 1500);
+    sharedCharacterInput.style.borderColor = 'var(--terracotta)';
+    sharedCharacterInput.focus();
+    setTimeout(() => { sharedCharacterInput.style.borderColor = ''; }, 1500);
     return;
   }
 
@@ -223,8 +234,8 @@ fmGenerateBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         prompt,
-        style: fmStyleInput.value.trim(),
-        story: fmStoryInput.value.trim(),
+        style: sharedStyleInput.value.trim(),
+        story: sharedStoryInput.value.trim(),
       }),
     });
 
@@ -388,7 +399,7 @@ fmResetBtn.addEventListener('click', () => {
   clearFmJob();
 
   // Clear character field and shared store entry
-  fmPromptInput.value = '';
+  sharedCharacterInput.value = '';
   window.SharedInputs.patch({ character: '' });
 
   hideError();
@@ -484,7 +495,7 @@ function mountViewer(glbUrl) {
         controls.update();
 
         // Update aria-label with prompt
-        const promptVal = fmPromptInput.value.trim();
+        const promptVal = sharedCharacterInput.value.trim();
         if (promptVal) {
           fmViewer.setAttribute('aria-label', `3D model of ${promptVal} — drag to rotate, scroll to zoom`);
         }

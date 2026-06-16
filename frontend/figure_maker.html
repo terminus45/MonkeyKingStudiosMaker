@@ -50,9 +50,10 @@
   <main class="fm-main" id="fmMain">
 
     <!-- ═══════════════════════════════════════════════════════════════
-         CANONICAL SHARED INPUTS PANEL — COPY VERBATIM INTO ALL 3 PAGES
-         Substitute {{...}} tokens per the per-tab mapping table.
-         Keep this comment marker so the block is easy to locate.
+         CANONICAL SHARED INPUTS PANEL — IDENTICAL ON ALL 3 PAGES
+         Character Description is always visible.
+         Story Prompt + Style Prompt are inside the collapsible <details>.
+         The only per-page difference: the .shared-tab-hint text.
          ═══════════════════════════════════════════════════════════════ -->
     <div class="shared-inputs-panel builder-step" id="sharedInputsPanel"
          style="border-left: 5px solid var(--teal)">
@@ -73,46 +74,60 @@
         </span>
       </div>
 
+      <!-- TAB HINT — only this line differs per page -->
       <p class="hint shared-tab-hint" id="sharedTabHint">
-        Figure Maker uses Character most — it drives what Bolt builds. Style and Story add detail.
+        Figure Maker uses Character most — it drives what gets built. Story and Style add detail.
       </p>
 
-      <!-- CHARACTER DESCRIPTION -->
-      <div class="control-group shared-field-primary" id="fmPromptGroup">
-        <label for="fmPromptInput">Character Description</label>
+      <!-- CHARACTER DESCRIPTION — always visible, primary field -->
+      <div class="control-group shared-field-primary" id="sharedCharacterGroup">
+        <label for="sharedCharacterInput">Character Description</label>
         <textarea
-          id="fmPromptInput"
+          id="sharedCharacterInput"
           rows="3"
           placeholder="A brave young monkey king with golden fur, red cape, and a mischievous grin…"
-          aria-describedby="fmPromptHint"
+          aria-describedby="sharedCharacterHint"
           maxlength="500"
         ></textarea>
-        <p class="hint" id="fmPromptHint">Who is the hero? Describe their look, personality, and any props.</p>
+        <p class="hint" id="sharedCharacterHint">Who is the hero? Describe their look, personality, and any props.</p>
       </div>
 
-      <!-- STORY PROMPT -->
-      <div class="control-group" id="fmStoryGroup" style="margin-top: .9rem">
-        <label for="fmStoryInput">Story Prompt <span class="hint">(optional — adds context)</span></label>
-        <textarea
-          id="fmStoryInput"
-          rows="2"
-          placeholder="A brave monkey king learns to share kindness with the forest…"
-          aria-describedby="fmStoryHint"
-        ></textarea>
-        <p class="hint" id="fmStoryHint">The adventure or scenario your story is about.</p>
-      </div>
+      <!-- COLLAPSIBLE: Story Prompt + Style Prompt -->
+      <details class="shared-more-options" id="sharedMoreOptions">
+        <summary class="shared-more-summary">
+          <span class="shared-more-arrow" aria-hidden="true">▸</span>
+          More options
+          <span class="shared-more-label-detail">(story &amp; style)</span>
+        </summary>
 
-      <!-- STYLE PROMPT -->
-      <div class="control-group" id="fmStyleGroup" style="margin-top: .9rem">
-        <label for="fmStyleInput">Style Prompt <span class="hint">(optional)</span></label>
-        <textarea
-          id="fmStyleInput"
-          rows="2"
-          placeholder="Colors, medium, and mood for the pictures…"
-          aria-describedby="fmStyleHint"
-        ></textarea>
-        <p class="hint" id="fmStyleHint">The visual art style used across all illustrations.</p>
-      </div>
+        <div class="shared-more-body">
+
+          <!-- STORY PROMPT -->
+          <div class="control-group" id="sharedStoryGroup">
+            <label for="sharedStoryInput">Story Prompt <span class="hint">(optional)</span></label>
+            <textarea
+              id="sharedStoryInput"
+              rows="3"
+              placeholder="A brave monkey king learns to share kindness with the forest…"
+              aria-describedby="sharedStoryHint"
+            ></textarea>
+            <p class="hint" id="sharedStoryHint">The adventure your story is about — leave blank and Claude will invent one.</p>
+          </div>
+
+          <!-- STYLE PROMPT -->
+          <div class="control-group" id="sharedStyleGroup">
+            <label for="sharedStyleInput">Style Prompt <span class="hint">(optional)</span></label>
+            <textarea
+              id="sharedStyleInput"
+              rows="2"
+              placeholder="Soft watercolor, children's book art, warm pastel tones…"
+              aria-describedby="sharedStyleHint"
+            ></textarea>
+            <p class="hint" id="sharedStyleHint">The visual art style used across all illustrations.</p>
+          </div>
+
+        </div><!-- /.shared-more-body -->
+      </details>
 
     </div>
     <!-- END CANONICAL SHARED INPUTS PANEL -->

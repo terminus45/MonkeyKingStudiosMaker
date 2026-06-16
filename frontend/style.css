@@ -490,6 +490,84 @@ input[type="range"]::-webkit-slider-thumb {
   border-left-width: 3px;
 }
 
+/* ── Shared inputs collapsible (details/summary) ── */
+.shared-more-options {
+  margin-top: 1rem;
+}
+
+/* Remove the browser's default disclosure triangle on all engines */
+.shared-more-options > summary {
+  list-style: none;
+}
+.shared-more-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.shared-more-summary {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: .35rem 0;
+  border-radius: 6px;
+  /* No background — sits flush with panel text */
+  transition: color .15s;
+}
+.shared-more-summary:hover {
+  color: var(--ink);
+}
+.shared-more-summary:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: 3px;
+}
+
+.shared-more-arrow {
+  display: inline-block;
+  font-size: .75rem;
+  transition: transform .2s ease;
+  /* ▸ at rest — rotates to point down when open */
+}
+.shared-more-options[open] .shared-more-arrow {
+  transform: rotate(90deg);
+}
+
+.shared-more-label-detail {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .78rem;
+  color: var(--muted);
+  opacity: .75;
+}
+
+/* Content area — animated reveal */
+.shared-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: .9rem;
+  padding-top: .75rem;
+  /* Soft separator between the summary and the first field */
+  border-top: 1px solid var(--border);
+  margin-top: .35rem;
+
+  /* Reveal animation via max-height trick.
+     <details> cannot animate height:auto natively; max-height is the standard workaround.
+     The closed state is handled by the browser hiding the <details> body when [open] is absent —
+     we only need to animate the open direction. */
+  animation: sharedMoreOpen .2s ease;
+}
+
+@keyframes sharedMoreOpen {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Mobile reflow for shared components ── */
 @media (max-width: 700px) {
   .sync-badge {
