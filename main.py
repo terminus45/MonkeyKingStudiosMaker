@@ -257,6 +257,8 @@ class DecomposeResponse(BaseModel):
     # ko variant
     book_title_ko: Optional[str] = None
     book_title_romanization: Optional[str] = None
+    # language-neutral per-character title ruby (mirrors page characters[])
+    book_title_characters: Optional[list[CharData]] = None
 
 
 @app.get("/languages")
@@ -327,6 +329,19 @@ def _decompose_tool(
                 title_n_f:       {"type": "string", "description": f"Book title in {name}"},
                 title_r_f:       {"type": "string", "description": f"Book title {reading_label.lower()}"},
                 "book_title_en": {"type": "string", "description": "Book title in English"},
+                "book_title_characters": {
+                    "type": "array",
+                    "description": "Per-character reading annotations for the book title (same alignment as page characters).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "c": {"type": "string"},
+                            "p": {"type": "string"},
+                        },
+                        "required": ["c", "p"],
+                        "additionalProperties": False,
+                    },
+                },
                 "pages": {
                     "type": "array",
                     "minItems": min_pages,
@@ -419,6 +434,10 @@ class RecheckRequest(BaseModel):
     language: Optional[str] = "zh"
     pages: list[PageData]
     anthropic_key: Optional[str] = None
+    # language-neutral title keys for re-aligning book_title_characters
+    book_title_native: Optional[str] = None
+    book_title_reading: Optional[str] = None
+    book_title_characters: Optional[list[CharData]] = None
 
 
 @app.post("/recheck-readings")
@@ -452,12 +471,27 @@ def recheck_readings(req: RecheckRequest):
             entry["characters"] = [{"c": ch.c, "p": ch.p} for ch in pg.characters]
         stripped_pages.append(entry)
 
+    # Build the payload — inject title when present (B3: omit entirely if title is blank)
+    payload: dict = {"pages": stripped_pages}
+    if req.book_title_native and req.book_title_native.strip():
+        title_native_f  = lang["title_native_field"]
+        title_reading_f = lang["title_reading_field"]
+        title_obj: dict = {
+            title_native_f:  req.book_title_native,
+            title_reading_f: req.book_title_reading or "",
+            "book_title_characters": (
+                [c.model_dump() for c in req.book_title_characters]
+                if req.book_title_characters else []
+            ),
+        }
+        payload["book_title"] = title_obj
+
     user_content = (
         "Here is the existing storybook. "
         "Correct any reading/tone-mark errors and re-align the characters[] arrays. "
         "Do NOT change meaning, vocabulary, or page count. "
         "You do NOT need to return image_prompt.\n\n"
-        f"```json\n{json.dumps({'pages': stripped_pages}, ensure_ascii=False, indent=2)}\n```"
+        f"```json\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n```"
     )
 
     try:

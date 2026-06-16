@@ -14,6 +14,8 @@ const settingsCgModel    = document.getElementById('settingsCgModel');
 const settingsCgModelStatus = document.getElementById('settingsCgModelStatus');
 const settingsCgAspect   = document.getElementById('settingsCgAspect');
 const settingsCgAspectStatus = document.getElementById('settingsCgAspectStatus');
+const settingsLang       = document.getElementById('settingsLang');
+const settingsLangStatus = document.getElementById('settingsLangStatus');
 
 // Key row configuration
 const KEY_ROWS = [
@@ -299,12 +301,49 @@ settingsCgAspect.addEventListener('change', () => {
   showAspectSavedChip();
 });
 
+// ── Storybook language select — Generation Settings ───────────────────────────
+const LANG_KEY = 'monkeyking_bb_lang';
+let _langSavedTimer = null;
+
+function showLangSavedChip() {
+  settingsLangStatus.dataset.state = 'set-config';
+  settingsLangStatus.textContent   = 'Saved';
+  if (_langSavedTimer) clearTimeout(_langSavedTimer);
+  _langSavedTimer = setTimeout(() => {
+    settingsLangStatus.dataset.state = 'unknown';
+    settingsLangStatus.textContent   = '';
+  }, 2000);
+}
+
+// Restore the saved storybook language on load (default zh when absent).
+function restoreLang() {
+  try {
+    const stored = localStorage.getItem(LANG_KEY);
+    if (stored) {
+      settingsLang.value = stored;
+      // If the stored value isn't one of the 3 options, fall back to zh
+      if (settingsLang.value !== stored) settingsLang.value = 'zh';
+    } else {
+      settingsLang.value = 'zh';
+    }
+  } catch { /* quota / private-mode */ }
+}
+
+// Persist language selection to its own key (separate from monkeyking_cg_draft)
+settingsLang.addEventListener('change', () => {
+  try {
+    localStorage.setItem(LANG_KEY, settingsLang.value);
+  } catch { /* quota / private-mode */ }
+  showLangSavedChip();
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
   await loadKeys();
   await loadGeminiModels();
   restoreAspect();
+  restoreLang();
 })();
 
 setInterval(checkHealth, 30_000);

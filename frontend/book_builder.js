@@ -64,7 +64,6 @@ const tableHeadersHint  = document.getElementById('tableHeadersHint');
 const tableInput        = document.getElementById('tableInput');
 const parseTableBtn     = document.getElementById('parseTableBtn');
 const parseHint         = document.getElementById('parseHint');
-const langToggle        = document.getElementById('langToggle');
 const decomposeLabel  = document.getElementById('decomposeLabel');
 const decomposeSpinner= document.getElementById('decomposeSpinner');
 const decomposeHint   = document.getElementById('decomposeHint');
@@ -110,10 +109,6 @@ const checkReadingsDialog  = document.getElementById('checkReadingsDialog');
 // ── Language selector ──────────────────────────────────────────────────────
 function applyLanguageToUI(code) {
   const meta = langMeta(code);
-  // Toggle button highlight
-  langToggle.querySelectorAll('.lang-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.lang === code));
-
   // Import-section labels and placeholders
   importTitleNativeLabel.textContent  = `Book Title (${meta.english_name})`;
   importTitleReadingLabel.textContent = `Title ${meta.reading_label}`;
@@ -129,18 +124,6 @@ function setLanguage(code, { rerender = true, save = true } = {}) {
   if (rerender && storyData) renderPages(storyData);
   if (save) saveState();
 }
-
-langToggle.addEventListener('click', e => {
-  const btn = e.target.closest('.lang-btn');
-  if (!btn) return;
-  const code = btn.dataset.lang;
-  if (code === currentLang) return;
-  // Switching language with an existing story would leave card fields empty
-  // (the native/reading field names differ). Confirm before discarding it.
-  if (storyData && !confirm('Switching language will clear the current book. Continue?')) return;
-  if (storyData) clearProject();
-  setLanguage(code);
-});
 
 // ── Server status ──────────────────────────────────────────────────────────
 async function checkHealth() {
@@ -779,6 +762,9 @@ parseTableBtn.addEventListener('click', () => {
   if (error) { parseHint.textContent = `Error: ${error}`; return; }
 
   const meta = langMeta(currentLang);
+  // No book_title_characters here by design — imported stories have no per-character
+  // title alignment yet; running "Check Readings" populates it (cover falls back to
+  // the zh splitter / native+reading line until then).
   storyData = {
     language:                       currentLang,
     book_title_en:                  importTitleEn.value.trim()      || 'Imported Story',
@@ -902,10 +888,18 @@ checkReadingsBtn.addEventListener('click', async () => {
   const pages = storyData.pages.map(pg => readCard(pg.page)).filter(Boolean);
 
   try {
+    const meta = langMeta(currentLang);
+    const recheckBody = {
+      language: currentLang,
+      pages,
+      book_title_native:     storyData[meta.title_native_field]  ?? null,
+      book_title_reading:    storyData[meta.title_reading_field] ?? null,
+      book_title_characters: storyData.book_title_characters     ?? null,
+    };
     const res = await fetch(`${API}/recheck-readings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ language: currentLang, pages }),
+      body: JSON.stringify(recheckBody),
     });
 
     if (!res.ok) {
@@ -1133,6 +1127,11 @@ function applyCheckReadings() {
     }
   }
 
+  // Silently merge title characters if the server returned them (no diff-modal row)
+  if (_crPendingData.book_title_characters) {
+    storyData.book_title_characters = _crPendingData.book_title_characters;
+  }
+
   lastCheckApplied = true;
   saveState();
   closeCheckReadingsModal();
@@ -1354,6 +1353,9 @@ async function restoreProject(project) {
   if (!project.story?.pages) return false;
 
   // Adopt the project's language (default zh for legacy projects without one).
+  // Note: the subsequent saveState() call will write this language back to
+  // monkeyking_bb_lang, so the Settings select reflects the opened book's
+  // language — this is intentional, not a bug.
   const projectLang = project.story.language || project.language || DEFAULT_LANG;
   setLanguage(projectLang, { rerender: false, save: false });
 

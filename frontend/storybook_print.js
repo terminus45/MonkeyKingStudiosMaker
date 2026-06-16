@@ -149,6 +149,20 @@ function renderRubyTitle(story, langCode) {
   const nativeStr  = story[lang.title_native_field]  ?? '';
   const readingStr = story[lang.title_reading_field] ?? '';
 
+  // Branch 1 (language-neutral): use pre-split book_title_characters when present.
+  // Works for zh, ja, ko and any future language — old books without this field skip here.
+  if (story.book_title_characters?.length) {
+    const ruby = story.book_title_characters.map(({c, p}) =>
+      p ? `<ruby>${escHtml(c)}<rt>${escHtml(p)}</rt></ruby>`
+        : escHtml(c)
+    ).join('');
+    return {
+      titleHtml: `<h1 class="cover-title-native cover-title-ruby" style="font-family:${lang.font_stack}">${ruby}</h1>`,
+      showReadingLine: false,
+    };
+  }
+
+  // Branch 2: zh fallback — derive characters via the deterministic syllable splitter.
   if ((langCode === 'zh' || !langCode) && nativeStr && readingStr) {
     const chars = _buildCharacters(nativeStr, readingStr);
     const ruby = chars.map(({c, p}) =>
@@ -161,6 +175,7 @@ function renderRubyTitle(story, langCode) {
     };
   }
 
+  // Branch 3: ja/ko fallback — native title + separate reading line below.
   return {
     titleHtml: `<h1 class="cover-title-native">${escHtml(nativeStr)}</h1>`,
     showReadingLine: true,
@@ -220,11 +235,25 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   .cover-img { max-width: 480px; width: 100%; border-radius: 4px; margin-bottom: 2rem; }
   .cover-title-native { font-size: 4rem; color: #000; letter-spacing: .1em;
     font-family: ${lang.font_stack}; }
-  /* Cover title with per-character ruby alignment (matches the inner pages).
-     Reset letter-spacing so the ruby pairs sit tight, and size the pinyin
-     proportionally smaller than the page rt since the title characters are large. */
-  .cover-title-ruby { line-height: 2; letter-spacing: 0; margin-bottom: .5rem; }
-  .cover-title-ruby rt { font-size: .34em; }
+  /* Cover title with per-character ruby alignment.
+     Sized slightly smaller than .cover-title-native (3.4rem vs 4rem) so the reading
+     (rt) tokens have proportional room above each character. line-height and max-width
+     are tuned for wrapped Japanese romaji titles on A4 landscape.
+     Rule order: .cover-title-ruby appears after .cover-title-native so its font-size
+     wins by source order when both classes are on the same <h1>. */
+  .cover-title-ruby {
+    font-size: 3.4rem;
+    line-height: 2.6;
+    letter-spacing: 0;
+    max-width: 80%;
+    margin-bottom: 0.75rem;
+    /* text-align: center is inherited from .cover */
+  }
+  /* The ruby reading annotation above each character.
+     Inherits font-family and color from the global rt rule.
+     font-weight: 400 (vs inner-page 500) trims romaji token width slightly.
+     overflow: visible is a defensive guard for print engines. */
+  .cover-title-ruby rt { font-size: 0.42em; font-weight: 400; overflow: visible; }
   .cover-title-reading { font-size: 1.4rem; color: #555; margin: .5rem 0; }
   .cover-title-en { font-size: 1.9rem; color: #000; font-weight: 700; margin-top: .25rem; }
 
@@ -259,6 +288,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   @media (max-width: 600px) {
     .page-spread { grid-template-columns: 1fr; }
     .cover-title-native { font-size: 2.5rem; }
+    .cover-title-ruby { font-size: 2.2rem; }
     .text-ruby { font-size: 2.4rem; }
     .text-en { font-size: 1.45rem; }
   }

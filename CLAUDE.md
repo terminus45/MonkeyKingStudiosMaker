@@ -104,4 +104,5 @@ Sub-agents are invoked via Claude Code's `--agent` flag or the Agent tool, point
 1. Add an entry to `LANGUAGES` in `languages.py` with the required fields (field names, reading label, font stack, system prompt)
 2. Add the corresponding optional fields to `PageData` and `DecomposeResponse` in `main.py`
 3. Add the matching entry to `LANG_META` in `book_builder.js`
-4. The gallery meta-reader (`_read_gallery_meta`), card UI, and print template pick up the new language automatically via the registry
+4. Add the `<option>` to `#settingsLang` in `settings.html` (the language list is hand-copied there — keep it in sync)
+5. The gallery meta-reader (`_read_gallery_meta`), card UI, and print template pick up the new language automatically via the registry

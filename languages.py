@@ -19,6 +19,11 @@ Return ONLY a valid JSON object — no markdown fences, no prose before or after
   "book_title_zh": "...",
   "book_title_pinyin": "...",
   "book_title_en": "...",
+  "book_title_characters": [
+    {"c": "小", "p": "xiǎo"},
+    {"c": "猴", "p": "hóu"},
+    {"c": "子", "p": "zi"}
+  ],
   "pages": [
     {
       "page": 1,
@@ -46,7 +51,9 @@ describe lighting, mood, setting, characters' appearance and action
 - characters must contain exactly one entry per character in zh (including punctuation)
 - each entry: "c" is the single character, "p" is its pinyin syllable with tone marks
 - punctuation (，。！？、…—""''（）) must have "p": "" (empty string)
-- neutral-tone syllables (e.g. 子 zi, 的 de) should have no tone mark\
+- neutral-tone syllables (e.g. 子 zi, 的 de) should have no tone mark
+- book_title_characters must contain exactly one entry per character in book_title_zh (including \
+punctuation); apply the same per-character pinyin rules as the page characters[] above\
 """
 
 JA_DECOMPOSE_PROMPT = """\
@@ -59,6 +66,13 @@ Return ONLY a valid JSON object — no markdown fences, no prose before or after
   "book_title_ja": "...",
   "book_title_romaji": "...",
   "book_title_en": "...",
+  "book_title_characters": [
+    {"c": "学", "p": "gakkō"},
+    {"c": "校", "p": ""},
+    {"c": "の", "p": "no"},
+    {"c": "冒", "p": "bōken"},
+    {"c": "険", "p": ""}
+  ],
   "pages": [
     {
       "page": 1,
@@ -92,7 +106,10 @@ describe lighting, mood, setting, characters' appearance and action
 - the small tsu "っ"/"ッ" should have "p": "" (it doubles the following consonant, not a syllable)
 - punctuation (。、！？「」『』…—) must have "p": "" (empty string)
 - for compound kanji words, attach the full word's romaji to the FIRST kanji and "" to subsequent \
-kanji in that word (e.g. 学校 → [{"c":"学","p":"gakkō"},{"c":"校","p":""}])\
+kanji in that word (e.g. 学校 → [{"c":"学","p":"gakkō"},{"c":"校","p":""}])
+- book_title_characters must contain exactly one entry per character in book_title_ja (including \
+kana and punctuation); apply the same compound-kanji FIRST-kanji rule and small-tsu/punctuation \
+rules as the page characters[] above\
 """
 
 KO_DECOMPOSE_PROMPT = """\
@@ -104,6 +121,11 @@ Return ONLY a valid JSON object — no markdown fences, no prose before or after
   "book_title_ko": "...",
   "book_title_romanization": "...",
   "book_title_en": "...",
+  "book_title_characters": [
+    {"c": "원", "p": "won"},
+    {"c": "숭", "p": "sung"},
+    {"c": "이", "p": "i"}
+  ],
   "pages": [
     {
       "page": 1,
@@ -135,7 +157,10 @@ Rules:
 describe lighting, mood, setting, characters' appearance and action
 - characters must contain exactly one entry per character in ko (including spaces and punctuation)
 - each entry: "c" is the single Hangul syllable, "p" is its RR romanization
-- spaces (" ") and punctuation (.,!?…—""'') must have "p": "" (empty string)\
+- spaces (" ") and punctuation (.,!?…—""'') must have "p": "" (empty string)
+- book_title_characters must contain exactly one entry per syllable block in book_title_ko \
+(including spaces and punctuation); apply the same per-syllable RR rules and \
+space/punctuation rules as the page characters[] above\
 """
 
 
@@ -204,6 +229,9 @@ Your ONLY job is to:
      restyle, change vocabulary, or alter meaning.
   4. Keep the SAME number of pages and the SAME `page` numbers as supplied.
   5. You do NOT need to return `image_prompt` — it is preserved by the client.
+  6. If a `book_title` object is supplied, also re-align `book_title_characters`
+     against the book title native string — one entry per native title character,
+     using the same per-character reading rules as the page `characters[]` above.
 
 The reading rules for this language are:
 """
