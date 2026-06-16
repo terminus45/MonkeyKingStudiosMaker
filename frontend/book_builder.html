@@ -97,7 +97,7 @@
         <div class="control-group" id="sharedStyleGroup" style="margin-top: .9rem">
           <label for="stylePromptInput">Style Prompt <span class="hint">(applied to all illustrations)</span></label>
           <textarea id="stylePromptInput" rows="2"
-            placeholder="Soft watercolor, children's book art, warm pastel tones…"
+            placeholder="Colors, medium, and mood for the pictures…"
             aria-describedby="sharedStyleHint"></textarea>
           <div class="presets" id="genStylePresets" style="margin-top:.4rem">
             <button class="preset" data-suffix="Black and white ink line art, manga linework, chibi storybook illustration, white background, no color">Ink &amp; Manga</button>
@@ -184,10 +184,34 @@
       </div>
       <p class="section-sub" id="bookTitleSub"></p>
 
+      <div class="check-readings-row">
+        <button id="checkReadingsBtn" class="settings-btn settings-btn--accent" disabled>
+          <span id="checkReadingsLabel">✦ Check Readings</span>
+          <div class="spinner hidden" id="checkReadingsSpinner" aria-hidden="true"></div>
+        </button>
+        <p class="hint-text" id="checkReadingsHint" aria-live="polite"></p>
+      </div>
+
       <div class="page-grid" id="pageGrid">
         <!-- cards injected by JS -->
       </div>
     </section>
+
+    <!-- ── Check Readings modal (injected hidden, shown by JS) ── -->
+    <div class="cr-modal-overlay hidden" id="checkReadingsOverlay" role="presentation">
+      <div class="cr-modal-dialog" id="checkReadingsDialog"
+           role="dialog" aria-modal="true" aria-labelledby="checkReadingsDialogTitle"
+           tabindex="-1">
+        <div class="cr-modal-header">
+          <h2 id="checkReadingsDialogTitle">✦ Readings Check</h2>
+          <button id="checkReadingsCloseBtn" class="settings-btn" aria-label="Close preview"
+                  style="min-height:32px;padding:.2rem .55rem">✕</button>
+        </div>
+        <p class="cr-summary" id="checkReadingsSummary"></p>
+        <div class="cr-modal-body" id="checkReadingsBody"></div>
+        <div class="cr-modal-footer" id="checkReadingsFooter"></div>
+      </div>
+    </div>
 
     <!-- ── STEP 3: Generation Queue ── -->
     <section class="builder-step hidden" id="step3">

@@ -138,11 +138,41 @@ function renderRubyText(pg, langCode) {
   return `<p class="text-ruby">${ruby}</p>`;
 }
 
+// Build the cover title with the SAME per-character ruby alignment as the inner
+// pages, so the pinyin sits above each character rather than as a separate line.
+// The title has no `characters[]` array (only the pages do), so we align with the
+// deterministic zh syllable splitter — the same fallback `renderRubyText` uses.
+// ja/ko have no such splitter, so they keep the native title + a reading line below.
+// Returns { titleHtml, showReadingLine }.
+function renderRubyTitle(story, langCode) {
+  const lang       = printLang(langCode);
+  const nativeStr  = story[lang.title_native_field]  ?? '';
+  const readingStr = story[lang.title_reading_field] ?? '';
+
+  if ((langCode === 'zh' || !langCode) && nativeStr && readingStr) {
+    const chars = _buildCharacters(nativeStr, readingStr);
+    const ruby = chars.map(({c, p}) =>
+      p ? `<ruby>${escHtml(c)}<rt>${escHtml(p)}</rt></ruby>`
+        : escHtml(c)
+    ).join('');
+    return {
+      titleHtml: `<h1 class="cover-title-native cover-title-ruby" style="font-family:${lang.font_stack}">${ruby}</h1>`,
+      showReadingLine: false,
+    };
+  }
+
+  return {
+    titleHtml: `<h1 class="cover-title-native">${escHtml(nativeStr)}</h1>`,
+    showReadingLine: true,
+  };
+}
+
 function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   const langCode  = story.language || PRINT_DEFAULT_LANG;
   const lang      = printLang(langCode);
   const titleNative  = story[lang.title_native_field]  ?? '';
   const titleReading = story[lang.title_reading_field] ?? '';
+  const titleBlock   = renderRubyTitle(story, langCode);
 
   const coverImg = imageB64[1]
     ? `<img src="${imageB64[1]}" alt="cover" class="cover-img">`
@@ -190,6 +220,11 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   .cover-img { max-width: 480px; width: 100%; border-radius: 4px; margin-bottom: 2rem; }
   .cover-title-native { font-size: 4rem; color: #000; letter-spacing: .1em;
     font-family: ${lang.font_stack}; }
+  /* Cover title with per-character ruby alignment (matches the inner pages).
+     Reset letter-spacing so the ruby pairs sit tight, and size the pinyin
+     proportionally smaller than the page rt since the title characters are large. */
+  .cover-title-ruby { line-height: 2; letter-spacing: 0; margin-bottom: .5rem; }
+  .cover-title-ruby rt { font-size: .34em; }
   .cover-title-reading { font-size: 1.4rem; color: #555; margin: .5rem 0; }
   .cover-title-en { font-size: 1.9rem; color: #000; font-weight: 700; margin-top: .25rem; }
 
@@ -206,23 +241,26 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
     background: repeating-linear-gradient(
       45deg, #f0f0f0 0px, #f0f0f0 10px, #e8e8e8 10px, #e8e8e8 20px);
     color: #bbb; font-size: 1rem; border: 2px dashed #ccc; }
-  .spread-right { padding: 3rem 2.5rem;
-    display: flex; flex-direction: column; justify-content: center; gap: 2rem; }
+  .spread-right { padding: 2.5rem 2.25rem;
+    display: flex; flex-direction: column; justify-content: center; gap: 1.5rem; }
   .page-num { font-size: .8rem; font-weight: 700; text-transform: uppercase;
     letter-spacing: .1em; color: #999; }
-  .text-ruby { font-size: 2.8rem; line-height: 3.2;
+  /* Sized large so the text stays legible even when printed two-up (≈50% scale).
+     The pinyin/reading (rt) is intentionally a large fraction of the character
+     size — it is the hardest thing to read after downscaling. */
+  .text-ruby { font-size: 3.2rem; line-height: 2.8;
     font-family: ${lang.font_stack}; color: #000; }
   ruby { ruby-align: center; }
-  rt { font-size: .38em; color: #555; font-family: 'Segoe UI', system-ui, sans-serif;
-    font-weight: 400; letter-spacing: 0; }
-  .text-en { font-size: 1.7rem; line-height: 1.6; color: #111;
+  rt { font-size: .5em; color: #444; font-family: 'Segoe UI', system-ui, sans-serif;
+    font-weight: 500; letter-spacing: 0; }
+  .text-en { font-size: 1.9rem; line-height: 1.55; color: #111;
     border-top: 1px solid #e0e0e0; padding-top: 1.25rem; }
 
   @media (max-width: 600px) {
     .page-spread { grid-template-columns: 1fr; }
     .cover-title-native { font-size: 2.5rem; }
-    .text-ruby { font-size: 2rem; }
-    .text-en { font-size: 1.3rem; }
+    .text-ruby { font-size: 2.4rem; }
+    .text-en { font-size: 1.45rem; }
   }
   @page { size: A4 landscape; margin: 0; }
   @media print {
@@ -241,8 +279,8 @@ ${printScript}
 <div class="book">
   <div class="cover">
     ${coverImg}
-    <h1 class="cover-title-native">${escHtml(titleNative)}</h1>
-    <p class="cover-title-reading">${escHtml(titleReading)}</p>
+    ${titleBlock.titleHtml}
+    ${titleBlock.showReadingLine ? `<p class="cover-title-reading">${escHtml(titleReading)}</p>` : ''}
     <p class="cover-title-en">${escHtml(story.book_title_en)}</p>
   </div>
   ${pageSpread}

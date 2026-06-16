@@ -265,19 +265,62 @@ def list_languages():
     return {"languages": languages.public_metadata(), "default": languages.DEFAULT_LANGUAGE}
 
 
-def _decompose_tool(lang: dict) -> dict:
+def _decompose_tool(
+    lang: dict,
+    *,
+    min_pages: int = 10,
+    max_pages: int = 10,
+    include_image_prompt: bool = True,
+) -> dict:
     """Build a tool definition that constrains Claude's output to the storybook schema
     for the given language. Using a tool guarantees structurally valid JSON — the API
-    validates the input against this schema before returning."""
+    validates the input against this schema before returning.
+
+    Parameters
+    ----------
+    lang : dict
+        Language registry entry.
+    min_pages / max_pages : int
+        Enforced array size for the pages array and the per-page page integer maximum.
+        Default 10/10 so the existing /decompose call is unchanged.
+    include_image_prompt : bool
+        When False, image_prompt is omitted from the page schema (used by
+        /recheck-readings, which preserves image_prompt client-side).
+    """
     native_f  = lang["native_field"]
     reading_f = lang["reading_field"]
     title_n_f = lang["title_native_field"]
     title_r_f = lang["title_reading_field"]
     name = lang["english_name"]
     reading_label = lang["reading_label"]
+
+    page_required = ["page", native_f, reading_f, "en", "characters"]
+    page_properties: dict = {
+        "page":     {"type": "integer", "minimum": 1, "maximum": max_pages},
+        native_f:   {"type": "string", "description": f"Page sentence in {name}"},
+        reading_f:  {"type": "string", "description": reading_label},
+        "en":       {"type": "string", "description": "English translation"},
+        "characters": {
+            "type": "array",
+            "description": "Per-character (or per-token) entries with reading annotations.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "c": {"type": "string"},
+                    "p": {"type": "string"},
+                },
+                "required": ["c", "p"],
+                "additionalProperties": False,
+            },
+        },
+    }
+    if include_image_prompt:
+        page_properties["image_prompt"] = {"type": "string"}
+        page_required.append("image_prompt")
+
     return {
         "name": "submit_storybook",
-        "description": f"Submit the decomposed 10-page {name}-English storybook.",
+        "description": f"Submit the decomposed {max_pages}-page {name}-English storybook.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -286,31 +329,12 @@ def _decompose_tool(lang: dict) -> dict:
                 "book_title_en": {"type": "string", "description": "Book title in English"},
                 "pages": {
                     "type": "array",
-                    "minItems": 10,
-                    "maxItems": 10,
+                    "minItems": min_pages,
+                    "maxItems": max_pages,
                     "items": {
                         "type": "object",
-                        "properties": {
-                            "page":         {"type": "integer", "minimum": 1, "maximum": 10},
-                            native_f:       {"type": "string", "description": f"Page sentence in {name}"},
-                            reading_f:      {"type": "string", "description": reading_label},
-                            "en":           {"type": "string", "description": "English translation"},
-                            "image_prompt": {"type": "string"},
-                            "characters": {
-                                "type": "array",
-                                "description": "Per-character (or per-token) entries with reading annotations.",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "c": {"type": "string"},
-                                        "p": {"type": "string"},
-                                    },
-                                    "required": ["c", "p"],
-                                    "additionalProperties": False,
-                                },
-                            },
-                        },
-                        "required": ["page", native_f, reading_f, "en", "image_prompt", "characters"],
+                        "properties": page_properties,
+                        "required": page_required,
                     },
                 },
             },
@@ -386,6 +410,101 @@ def decompose(req: DecomposeRequest):
             )
 
     data["language"] = lang["code"]
+    return data
+
+
+# ── Re-check readings ──────────────────────────────────────────────────────
+
+class RecheckRequest(BaseModel):
+    language: Optional[str] = "zh"
+    pages: list[PageData]
+    anthropic_key: Optional[str] = None
+
+
+@app.post("/recheck-readings")
+def recheck_readings(req: RecheckRequest):
+    """Re-run Claude over an existing story to correct tone marks / romanization
+    and re-align characters[].  Returns the same page array (native, reading,
+    characters, en) with corrections applied.  image_prompt is NOT returned —
+    the frontend preserves the existing value client-side."""
+    api_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
+
+    lang = languages.get(req.language)
+    client = anthropic.Anthropic(api_key=api_key)
+
+    n = len(req.pages)
+    tool = _decompose_tool(lang, min_pages=n, max_pages=n, include_image_prompt=False)
+
+    # Build a lean user message: strip image_prompt to save output tokens.
+    native_f  = lang["native_field"]
+    reading_f = lang["reading_field"]
+    stripped_pages = []
+    for pg in req.pages:
+        entry: dict = {
+            "page": pg.page,
+            native_f:  getattr(pg, native_f)  or "",
+            reading_f: getattr(pg, reading_f) or "",
+            "en": pg.en,
+        }
+        if pg.characters:
+            entry["characters"] = [{"c": ch.c, "p": ch.p} for ch in pg.characters]
+        stripped_pages.append(entry)
+
+    user_content = (
+        "Here is the existing storybook. "
+        "Correct any reading/tone-mark errors and re-align the characters[] arrays. "
+        "Do NOT change meaning, vocabulary, or page count. "
+        "You do NOT need to return image_prompt.\n\n"
+        f"```json\n{json.dumps({'pages': stripped_pages}, ensure_ascii=False, indent=2)}\n```"
+    )
+
+    try:
+        with client.messages.stream(
+            model="claude-opus-4-7",
+            max_tokens=8192,
+            system=[
+                {
+                    "type": "text",
+                    "text": languages.correction_prompt(lang),
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
+            messages=[{"role": "user", "content": user_content}],
+            timeout=180,
+        ) as stream:
+            msg = stream.get_final_message()
+    except anthropic.APIError as e:
+        raise HTTPException(status_code=502, detail=f"Claude API error: {e}")
+
+    # Extract tool_use block (same fallback as /decompose)
+    data = None
+    for block in msg.content:
+        if block.type == "tool_use" and block.name == tool["name"]:
+            data = block.input
+            break
+
+    if data is None:
+        raw = ""
+        for block in msg.content:
+            if block.type == "text":
+                raw = block.text
+                break
+        raw = re.sub(r"^```[a-z]*\n?", "", raw.strip())
+        raw = re.sub(r"\n?```$", "", raw.strip())
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Claude did not return a tool call and text was unparseable: {e}\n\nRaw output:\n{raw}",
+            )
+
+    data["language"] = lang["code"]
+    # Return plain dict — image_prompt absent so we don't force DecomposeResponse validation
     return data
 
 

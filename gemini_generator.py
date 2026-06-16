@@ -91,7 +91,22 @@ def generate(
                 contents=full_prompt,
                 config=gt.GenerateContentConfig(response_modalities=["IMAGE"]),
             )
-            for part in response.candidates[0].content.parts:
+            # When a request is blocked (safety filter, recitation, etc.) Gemini may
+            # return no candidates, or a candidate whose `content` is None — accessing
+            # `.parts` on that raises "'NoneType' object has no attribute 'parts'".
+            # Surface the block reason instead of crashing.
+            candidate = (response.candidates or [None])[0]
+            content = getattr(candidate, "content", None) if candidate else None
+            if content is None or not getattr(content, "parts", None):
+                reason = getattr(candidate, "finish_reason", None) if candidate else None
+                block = getattr(getattr(response, "prompt_feedback", None), "block_reason", None)
+                detail = block or reason
+                hint = f" ({detail})" if detail else ""
+                raise RuntimeError(
+                    f"Gemini returned no image{hint} — the prompt may have been blocked. "
+                    "Try rephrasing, or switch the image model in Settings."
+                )
+            for part in content.parts:
                 if part.inline_data is not None:
                     return Image.open(io.BytesIO(part.inline_data.data))
             raise RuntimeError("Gemini returned no image — try a different prompt.")

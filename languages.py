@@ -186,6 +186,38 @@ LANGUAGES = {
 
 DEFAULT_LANGUAGE = "zh"
 
+# ── Recheck / correction prompt helpers ──────────────────────────────────────
+# These wrap the per-language reading rules so the /recheck-readings endpoint
+# can single-source the rules from this registry rather than copying them.
+
+_CORRECTION_PREFIX = """\
+You are a meticulous proofreader for bilingual children's storybooks.
+You are given an EXISTING, FINISHED storybook — NOT a new concept.
+Your ONLY job is to:
+  1. Correct readings (tone marks / romanization / romaji) where they contain an
+     actual error.
+  2. Re-align the `characters[]` array so it maps 1:1 to the native sentence —
+     one entry per native character/token including spaces and punctuation;
+     punctuation and spaces must have "p": "" (empty string).
+  3. Fix the native sentence and reading string ONLY where they contain a genuine
+     error (wrong character, wrong tone mark, clear typo). Do NOT rewrite,
+     restyle, change vocabulary, or alter meaning.
+  4. Keep the SAME number of pages and the SAME `page` numbers as supplied.
+  5. You do NOT need to return `image_prompt` — it is preserved by the client.
+
+The reading rules for this language are:
+"""
+
+_CORRECTION_SUFFIX = """
+
+Return your corrections via the submit_storybook tool exactly as instructed."""
+
+
+def correction_prompt(lang: dict) -> str:
+    """Return a system prompt for /recheck-readings that re-uses the per-language
+    reading rules from the registry rather than duplicating them in main.py."""
+    return _CORRECTION_PREFIX + lang["prompt"] + _CORRECTION_SUFFIX
+
 
 def get(code: str | None) -> dict:
     """Return the language entry for `code`, falling back to DEFAULT_LANGUAGE."""

@@ -43,6 +43,9 @@ function langMeta(code) {
 let storyData = null;   // DecomposeResponse from server
 let geminiAR = '4:3';  // default: classic storybook shape
 let currentLang = DEFAULT_LANG;
+// Set true when a Check Readings Apply has been committed; enables staleness tracking.
+// Reset on decompose/clear so freshly-generated books start clean.
+let lastCheckApplied = false;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const conceptInput      = document.getElementById('conceptInput');
@@ -94,6 +97,13 @@ const gallerySpinner  = document.getElementById('gallerySpinner');
 
 const statusDot       = document.getElementById('statusDot');
 const statusLabel     = document.getElementById('statusLabel');
+
+const checkReadingsBtn     = document.getElementById('checkReadingsBtn');
+const checkReadingsLabel   = document.getElementById('checkReadingsLabel');
+const checkReadingsSpinner = document.getElementById('checkReadingsSpinner');
+const checkReadingsHint    = document.getElementById('checkReadingsHint');
+const checkReadingsOverlay = document.getElementById('checkReadingsOverlay');
+const checkReadingsDialog  = document.getElementById('checkReadingsDialog');
 
 // (step1StylePresets removed — preset pills deleted from Step 1)
 
@@ -262,12 +272,14 @@ async function runDecompose() {
       throw new Error(err.detail ?? res.statusText);
     }
     storyData = await res.json();
+    lastCheckApplied = false;
     Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
     decomposeHint.textContent = '';
     renderPages(storyData);
     step2.classList.remove('hidden');
     step4.classList.remove('hidden');
     queueBtn.disabled = false;
+    checkReadingsBtn.disabled = false;
     saveProjectBtn.disabled = false;
     saveState();
     return true;
@@ -282,6 +294,7 @@ async function runDecompose() {
 function setDecomposeLoading(on) {
   decomposeBtn.disabled = on;
   autoGenBtn.disabled   = on;
+  checkReadingsBtn.disabled = on;
   decomposeLabel.textContent = on ? 'Writing…' : '✦ Create Story with Claude';
   autoGenLabel.textContent   = on ? 'Writing…' : '⚡ Create Story + Generate Images';
   decomposeSpinner.classList.toggle('hidden', !on);
@@ -343,6 +356,10 @@ function buildCard(pg) {
         <label>${escHtml(meta.reading_label)}</label>
         <textarea rows="2" data-field="${meta.reading_field}">${escHtml(readingVal)}</textarea>
       </div>
+
+      <p class="card-readings-stale-hint hidden" id="readings-stale-${pg.page}">
+        &#9888; Reading may be out of date — run Check Readings to correct.
+      </p>
 
       <div class="card-field">
         <label>English</label>
@@ -490,18 +507,29 @@ pageGrid.addEventListener('drop', e => {
   uploadImageFile(pageNum, file);
 });
 
-// Read current card values (user may have edited them)
+// Read current card values (user may have edited them).
+// characters[] is NOT in the DOM — it is carried forward from storyData so it
+// survives save/export round-trips.  When a card is flagged data-readings-stale
+// the array is dropped (set to null) so a stale annotation is never exported
+// as wrong ruby — it degrades to the deterministic fallback in renderRubyText.
 function readCard(pageNum) {
   const card = pageGrid.querySelector(`[data-page="${pageNum}"]`);
   if (!card) return null;
   const meta = langMeta(currentLang);
   const get = f => card.querySelector(`[data-field="${f}"]`)?.value ?? '';
+
+  // Look up the authoritative characters[] from storyData (not the DOM).
+  const src = storyData?.pages?.find(p => p.page === pageNum);
+  const stale = card.dataset.readingsStale === 'true';
+  const characters = stale ? null : (src?.characters ?? null);
+
   return {
     page: pageNum,
     [meta.native_field]:  get(meta.native_field),
     [meta.reading_field]: get(meta.reading_field),
     en: get('en'),
     image_prompt: get('image_prompt'),
+    characters,
   };
 }
 
@@ -598,6 +626,7 @@ queueBtn.addEventListener('click', async () => {
 
 function setQueueLoading(on) {
   queueBtn.disabled = on;
+  checkReadingsBtn.disabled = on;
   queueLabel.textContent = on ? 'Generating…' : '⚡ Generate All Images';
   queueSpinner.classList.toggle('hidden', !on);
   stopBtn.classList.toggle('hidden', !on);
@@ -758,12 +787,14 @@ parseTableBtn.addEventListener('click', () => {
     pages,
   };
 
+  lastCheckApplied = false;
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
   renderPages(storyData);
   step2.classList.remove('hidden');
   step4.classList.remove('hidden');
-  queueBtn.disabled       = false;
-  saveProjectBtn.disabled = false;
+  queueBtn.disabled         = false;
+  checkReadingsBtn.disabled = false;
+  saveProjectBtn.disabled   = false;
   saveState();
 
   parseHint.textContent = `✓ Imported ${pages.length} pages.`;
@@ -838,6 +869,275 @@ function splitRow(line, delim) {
   return cells;
 }
 
+// ── Staleness tracking ─────────────────────────────────────────────────────
+// When the user edits a native-field textarea after a Check Readings Apply,
+// flag that card as stale so the exported characters[] is dropped.
+pageGrid.addEventListener('input', e => {
+  if (!lastCheckApplied) return;
+  const meta = langMeta(currentLang);
+  const ta = e.target.closest(`[data-field="${meta.native_field}"]`);
+  if (!ta) return;
+  const card = ta.closest('.page-card');
+  if (!card) return;
+  card.dataset.readingsStale = 'true';
+  const pageNum = parseInt(card.dataset.page);
+  const hint = document.getElementById(`readings-stale-${pageNum}`);
+  if (hint) hint.classList.remove('hidden');
+});
+
+// ── Check Readings ─────────────────────────────────────────────────────────
+function setCheckReadingsLoading(on) {
+  checkReadingsBtn.disabled = on;
+  checkReadingsLabel.textContent = on ? 'Checking…' : '✦ Check Readings';
+  checkReadingsSpinner.classList.toggle('hidden', !on);
+}
+
+checkReadingsBtn.addEventListener('click', async () => {
+  if (!storyData) return;
+
+  setCheckReadingsLoading(true);
+  checkReadingsHint.textContent = 'Claude is checking your readings… this usually takes ~20 seconds.';
+
+  // Gather current pages using the fixed readCard (includes characters[])
+  const pages = storyData.pages.map(pg => readCard(pg.page)).filter(Boolean);
+
+  try {
+    const res = await fetch(`${API}/recheck-readings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: currentLang, pages }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      if (res.status === 503) {
+        checkReadingsHint.textContent =
+          'No Anthropic key set — add it in Settings (⚙) to use this feature.';
+      } else {
+        checkReadingsHint.textContent = `Error: ${err.detail ?? res.statusText}`;
+      }
+      return;
+    }
+
+    const data = await res.json();
+    checkReadingsHint.textContent = '';
+    openCheckReadingsModal(data);
+  } catch (err) {
+    checkReadingsHint.textContent =
+      err.message && err.message.includes('fetch')
+        ? 'Could not reach the server — check your connection and try again.'
+        : `Error: ${err.message}`;
+  } finally {
+    setCheckReadingsLoading(false);
+  }
+});
+
+// ── Check Readings modal ───────────────────────────────────────────────────
+let _crPendingData = null;   // server response held until Apply / Cancel
+
+function openCheckReadingsModal(data) {
+  _crPendingData = data;
+
+  const meta = langMeta(currentLang);
+  const returnedPages = data.pages || [];
+
+  // Detect changed pages by comparing returned native + reading against current card values.
+  // Also treat a changed characters[] (non-null returned vs. stored) as changed.
+  const changedPages = [];
+  const unchangedCount = { n: 0 };
+
+  for (const rp of returnedPages) {
+    const card = pageGrid.querySelector(`[data-page="${rp.page}"]`);
+    const currentNative  = card?.querySelector(`[data-field="${meta.native_field}"]`)?.value?.trim() ?? '';
+    const currentReading = card?.querySelector(`[data-field="${meta.reading_field}"]`)?.value?.trim() ?? '';
+    const returnedNative  = (rp[meta.native_field]  ?? '').trim();
+    const returnedReading = (rp[meta.reading_field] ?? '').trim();
+
+    const src = storyData?.pages?.find(p => p.page === rp.page);
+    const charsChanged = rp.characters && JSON.stringify(rp.characters) !== JSON.stringify(src?.characters ?? null);
+
+    if (returnedNative !== currentNative || returnedReading !== currentReading || charsChanged) {
+      changedPages.push({ rp, currentNative, currentReading, returnedNative, returnedReading });
+    } else {
+      unchangedCount.n++;
+    }
+  }
+
+  // Build modal content
+  const titleEl = document.getElementById('checkReadingsDialogTitle');
+  const summaryEl = document.getElementById('checkReadingsSummary');
+  const bodyEl = document.getElementById('checkReadingsBody');
+  const footerEl = document.getElementById('checkReadingsFooter');
+
+  bodyEl.innerHTML = '';
+  footerEl.innerHTML = '';
+
+  if (changedPages.length === 0) {
+    titleEl.textContent = '✦ Readings Check — all good!';
+    summaryEl.textContent = 'Your readings look correct — no corrections found.';
+    summaryEl.style.borderBottom = 'none';
+    bodyEl.style.display = 'none';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'settings-btn';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', closeCheckReadingsModal);
+    footerEl.appendChild(closeBtn);
+  } else {
+    titleEl.textContent = `✦ Readings Check — ${changedPages.length} page${changedPages.length !== 1 ? 's' : ''} updated`;
+    summaryEl.textContent = unchangedCount.n > 0
+      ? `${unchangedCount.n} page${unchangedCount.n !== 1 ? 's' : ''} unchanged`
+      : '';
+    summaryEl.style.borderBottom = '';
+    bodyEl.style.display = '';
+
+    // Native font per language
+    const nativeFontStyle = {
+      zh: "'Noto Serif SC', 'SimSun', serif",
+      ja: "'Noto Serif JP', 'Yu Mincho', serif",
+      ko: "'Noto Serif KR', 'Nanum Myeongjo', serif",
+    }[currentLang] || "'Noto Serif SC', 'SimSun', serif";
+
+    for (const { rp, currentNative, currentReading, returnedNative, returnedReading } of changedPages) {
+      const card = document.createElement('div');
+      card.className = 'cr-page-card';
+      card.innerHTML = `
+        <p class="cr-page-label">Page ${rp.page}</p>
+        <div class="cr-field">
+          <span class="cr-field-label">Native</span>
+          <p class="cr-field-value cr-native" style="font-family:${nativeFontStyle}">${escHtml(returnedNative || currentNative)}</p>
+        </div>
+        <div class="cr-field">
+          <span class="cr-field-label">Before</span>
+          <p class="cr-field-value cr-before">${escHtml(currentReading)}</p>
+        </div>
+        <div class="cr-field">
+          <span class="cr-field-label">After</span>
+          <p class="cr-field-value cr-after">${escHtml(returnedReading)}</p>
+        </div>
+      `;
+      bodyEl.appendChild(card);
+    }
+
+    // Apply button
+    const applyBtn = document.createElement('button');
+    applyBtn.id = 'checkReadingsApplyBtn';
+    applyBtn.className = 'generate-btn';
+    applyBtn.textContent = `Apply ${changedPages.length} correction${changedPages.length !== 1 ? 's' : ''}`;
+    applyBtn.addEventListener('click', applyCheckReadings);
+    footerEl.appendChild(applyBtn);
+
+    // Cancel button
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'checkReadingsCancelBtn';
+    cancelBtn.className = 'generate-btn cr-cancel-btn';
+    cancelBtn.textContent = 'Cancel — keep current';
+    cancelBtn.addEventListener('click', closeCheckReadingsModal);
+    footerEl.appendChild(cancelBtn);
+  }
+
+  // Show modal and move focus
+  checkReadingsOverlay.classList.remove('hidden');
+  checkReadingsDialog.focus();
+
+  // Focus trap
+  checkReadingsDialog.addEventListener('keydown', trapFocus);
+  document.addEventListener('keydown', handleModalEscape);
+}
+
+function closeCheckReadingsModal() {
+  checkReadingsOverlay.classList.add('hidden');
+  checkReadingsDialog.removeEventListener('keydown', trapFocus);
+  document.removeEventListener('keydown', handleModalEscape);
+  _crPendingData = null;
+  checkReadingsBtn.focus();
+}
+
+function handleModalEscape(e) {
+  if (e.key === 'Escape') closeCheckReadingsModal();
+}
+
+function trapFocus(e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(
+    checkReadingsDialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+  ).filter(el => !el.disabled);
+  if (!focusable.length) { e.preventDefault(); return; }
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+}
+
+// Close the modal by clicking the backdrop (outside the dialog box)
+checkReadingsOverlay.addEventListener('click', e => {
+  if (e.target === checkReadingsOverlay) closeCheckReadingsModal();
+});
+
+document.getElementById('checkReadingsCloseBtn').addEventListener('click', closeCheckReadingsModal);
+
+function applyCheckReadings() {
+  if (!_crPendingData) return;
+  const returnedPages = _crPendingData.pages || [];
+  const meta = langMeta(currentLang);
+
+  // Validate page count matches before applying anything
+  if (returnedPages.length !== storyData.pages.length) {
+    checkReadingsHint.textContent =
+      'Unexpected response — page count mismatch. Your story was not changed.';
+    closeCheckReadingsModal();
+    return;
+  }
+
+  // Validate all returned page numbers exist in storyData
+  const storyPageNums = new Set(storyData.pages.map(p => p.page));
+  for (const rp of returnedPages) {
+    if (!storyPageNums.has(rp.page)) {
+      checkReadingsHint.textContent =
+        'Unexpected response — page number mismatch. Your story was not changed.';
+      closeCheckReadingsModal();
+      return;
+    }
+  }
+
+  // Apply corrections
+  for (const rp of returnedPages) {
+    const sdIdx = storyData.pages.findIndex(p => p.page === rp.page);
+    if (sdIdx === -1) continue;
+
+    const returnedNative  = rp[meta.native_field]  ?? '';
+    const returnedReading = rp[meta.reading_field] ?? '';
+
+    // Write corrected native + reading + characters into storyData
+    storyData.pages[sdIdx][meta.native_field]  = returnedNative;
+    storyData.pages[sdIdx][meta.reading_field] = returnedReading;
+    if (rp.characters) {
+      storyData.pages[sdIdx].characters = rp.characters;
+    }
+
+    // Write corrected values into the card textareas
+    const card = pageGrid.querySelector(`[data-page="${rp.page}"]`);
+    if (card) {
+      const nativeTa  = card.querySelector(`[data-field="${meta.native_field}"]`);
+      const readingTa = card.querySelector(`[data-field="${meta.reading_field}"]`);
+      if (nativeTa)  nativeTa.value  = returnedNative;
+      if (readingTa) readingTa.value = returnedReading;
+
+      // Clear stale flag and hint for this card
+      delete card.dataset.readingsStale;
+      const hint = document.getElementById(`readings-stale-${rp.page}`);
+      if (hint) hint.classList.add('hidden');
+    }
+  }
+
+  lastCheckApplied = true;
+  saveState();
+  closeCheckReadingsModal();
+}
+
 // ── localStorage state persistence ────────────────────────────────────────
 const LS_KEY      = 'monkeyking_bb_state';
 const LANG_KEY    = 'monkeyking_bb_lang';   // preferred language, survives Clear
@@ -871,6 +1171,7 @@ function clearProject({ keepInputs = false } = {}) {
   localStorage.removeItem(LS_KEY);
 
   storyData = null;
+  lastCheckApplied = false;
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
   // keepInputs leaves the shared Character/Style/Story fields (and the shared
@@ -890,10 +1191,12 @@ function clearProject({ keepInputs = false } = {}) {
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
   step4.classList.add('hidden');
-  queueBtn.disabled       = true;
-  saveProjectBtn.disabled = true;
-  decomposeHint.textContent = '';
-  parseHint.textContent     = '';
+  queueBtn.disabled          = true;
+  checkReadingsBtn.disabled  = true;
+  saveProjectBtn.disabled    = true;
+  decomposeHint.textContent  = '';
+  checkReadingsHint.textContent = '';
+  parseHint.textContent      = '';
 }
 
 clearProjectBtn.addEventListener('click', () => {
@@ -1061,11 +1364,13 @@ async function restoreProject(project) {
 
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
+  lastCheckApplied = false;
   renderPages(storyData);
   step2.classList.remove('hidden');
   step4.classList.remove('hidden');
-  queueBtn.disabled       = false;
-  saveProjectBtn.disabled = false;
+  queueBtn.disabled         = false;
+  checkReadingsBtn.disabled = false;
+  saveProjectBtn.disabled   = false;
 
   if (project.generated_images) {
     await Promise.allSettled(
