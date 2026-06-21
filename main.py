@@ -13,13 +13,14 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import (
+    BILLING_ENABLED,
     FIGURES_DIR,
     OUTPUT_DIR,
     PRACTICE_DIR,
@@ -42,6 +43,24 @@ async def lifespan(app: FastAPI):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
     os.makedirs(PRACTICE_DIR, exist_ok=True)
+
+    # Billing subsystem — only initialised when BILLING_ENABLED=true.
+    # All billing imports are lazy (inside this guard) so the app boots cleanly
+    # even when `stripe` is not installed.
+    if BILLING_ENABLED:
+        import billing_db as _billing_db  # noqa: PLC0415
+        from config import DEV_AUTH as _DEV_AUTH  # noqa: PLC0415
+        _billing_db.init_db()
+        if _DEV_AUTH:
+            # Safety foot-gun guard: the dev auth shim accepts `X-Dev-User: <anyone>`.
+            # It MUST be off in production. Before go-live, set DEV_AUTH=false and
+            # implement the real Clerk/Supabase verifier in auth.py.
+            print(
+                "\n  ⚠️  BILLING is ON with DEV_AUTH — the X-Dev-User auth shim is active "
+                "(any caller can act as any user).\n      This is for local development "
+                "ONLY. Set DEV_AUTH=false in production.\n"
+            )
+
     yield
 
 
@@ -1497,6 +1516,66 @@ def practice_sheet_local(req: LocalPracticeRequest):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{slug}_practice.pdf"'},
     )
+
+
+# ── Accounts & Credits routes (registered ONLY when BILLING_ENABLED=true) ───
+# All billing/auth imports are lazy inside this block so that when BILLING_ENABLED is
+# false (the default), `stripe` and `billing_db` are never imported, no DB is opened,
+# and these routes simply do not exist (they return 404 from the static mount or 404
+# from FastAPI's router — same as any unknown route).
+if BILLING_ENABLED:
+    import billing as _billing_mod          # noqa: PLC0415
+    import billing_db as _billing_db_mod    # noqa: PLC0415
+    from auth import current_user as _current_user, User as _User  # noqa: PLC0415
+
+    class _CheckoutRequest(BaseModel):
+        package_id: str
+
+    @app.get("/wallet")
+    async def wallet_get(user: _User = Depends(_current_user)):
+        """Return balance + transaction history for the authenticated user."""
+        try:
+            data = _billing_db_mod.get_wallet(user.profile_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Database error: {exc}") from exc
+        return data
+
+    @app.get("/billing/packages")
+    async def billing_packages():
+        """Return the server-authoritative coin package catalog (public)."""
+        return {"packages": _billing_mod.package_catalog()}
+
+    @app.post("/billing/checkout")
+    async def billing_checkout(
+        req: _CheckoutRequest,
+        user: _User = Depends(_current_user),
+    ):
+        """Create a Stripe Checkout session and return the redirect URL."""
+        try:
+            url = _billing_mod.create_checkout_session(user.profile_id, req.package_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        return {"url": url}
+
+    @app.post("/stripe/webhook")
+    async def stripe_webhook(request: Request):
+        """Stripe webhook receiver — authenticated by Stripe signature, not JWT.
+
+        IMPORTANT: must read the RAW body before any parsing; Stripe HMAC is over raw bytes.
+        Returns 200 on success or idempotent duplicate; 400 on signature/data error.
+        Non-2xx triggers Stripe retry — only use for transient server errors (5xx).
+        """
+        payload = await request.body()
+        sig_header = request.headers.get("stripe-signature")
+        try:
+            _billing_mod.handle_webhook(payload, sig_header)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        return {"ok": True}
 
 
 # ── Frontend static files (must be last — catches everything not matched above) ──

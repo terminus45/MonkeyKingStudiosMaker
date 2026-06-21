@@ -31,6 +31,13 @@
         <a href="figure_maker.html" class="nav-link">🧩 Figure Maker</a>
         <a href="gallery.html" class="nav-link">🖼 Gallery</a>
       </nav>
+      <!-- Auth chip: populated by auth_client.js initChip() on DOMContentLoaded.
+           TODO (other pages): copy this <a id="authChip"> element to character_generator.html,
+           figure_maker.html, gallery.html, and settings.html in the same position
+           (between .header-nav and .server-status). Also add auth_client.js script tag. -->
+      <a id="authChip" class="auth-chip" href="account.html?intent=signin" aria-label="Sign in to your account">
+        <span class="auth-chip-skeleton"></span>
+      </a>
       <div class="server-status">
         <span class="status-dot" id="statusDot"></span>
         <span id="statusLabel">Connecting…</span>
@@ -261,6 +268,8 @@
 
   <script src="shared_inputs.js"></script>
   <script src="storybook_print.js"></script>
+  <!-- auth_client.js: dev auth shim. Replace with vendor SDK at Phase 2. -->
+  <script src="auth_client.js"></script>
   <script src="book_builder.js"></script>
 </body>
 </html>

@@ -7,3 +7,5 @@ python-multipart>=0.0.9
 google-genai>=0.8.0
 httpx>=0.27.0
 reportlab
+# stripe is only needed when BILLING_ENABLED=true; the app boots without it.
+stripe>=9.0
