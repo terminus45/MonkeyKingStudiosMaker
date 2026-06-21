@@ -9,3 +9,6 @@ config.json
 .DS_Store
 .claude/settings.local.json
 *.swp
+# Billing SQLite DB (local dev only; production uses Postgres via DATABASE_URL)
+*.db
+billing.db

@@ -1202,6 +1202,10 @@ function autoExpandIfContent() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (async () => {
+  // Auth chip — safe no-op when BILLING_ENABLED is off (chip will show Sign in
+  // then silently hide itself when /wallet returns 404).
+  if (window.Auth) Auth.initChip(document.getElementById('authChip'));
+
   await checkHealth();
   restoreGenSettings();
 

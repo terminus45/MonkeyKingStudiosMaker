@@ -136,3 +136,46 @@ Sub-agents are invoked via Claude Code's `--agent` flag or the Agent tool, point
 3. Add the matching entry to `LANG_META` in `book_builder.js`
 4. Add the `<option>` to `#settingsLang` in `settings.html` (the language list is hand-copied there — keep it in sync)
 5. The gallery meta-reader (`_read_gallery_meta`), card UI, and print template pick up the new language automatically via the registry
+
+## Accounts & Credits (Phase 1, behind `BILLING_ENABLED`)
+
+**Feature flag:** Set `BILLING_ENABLED=true` in `.env` to activate the wallet subsystem. When unset (default), no database is opened, no new routes are registered, and the app behaves exactly as before. The flag gates everything — new imports, DB init, and route registration all happen inside `if BILLING_ENABLED:` guards.
+
+### New modules
+
+- **`billing_db.py`** — stdlib `sqlite3`, no external deps. Creates tables on first use (`init_db()` called in lifespan). Schema: `profiles`, `wallets`, `coin_ledger`, `stripe_events`. Key functions: `get_or_create_profile`, `get_wallet`, `credit_coins`, `charge_coins`, `refund_coins`, `record_stripe_event`. All writes use `BEGIN IMMEDIATE` for atomicity. Designed for Postgres portability (see inline swap notes).
+- **`auth.py`** — `current_user(request) -> User` FastAPI dependency. Phase 1 uses a **DEV verifier** (reads `X-Dev-User: <id>` or `Authorization: Bearer dev:<id>` header). See module docstring for Clerk/Supabase JWT swap instructions at Phase 2. Lazy-imports `billing_db`. `DEV_AUTH` env var (default `true`) selects the verifier.
+- **`billing.py`** — Stripe logic. `PACKAGES` dict is the server-authoritative coin catalog. `create_checkout_session(profile_id, package_id) -> url` and `handle_webhook(payload_bytes, sig_header)` are the two entry points. Lazily imports `stripe`.
+
+### New routes (only when `BILLING_ENABLED=true`)
+
+All declared before the static mount in `main.py`.
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /wallet` | `current_user` | Return balance + transaction history |
+| `GET /billing/packages` | Public | Server-authoritative package catalog |
+| `POST /billing/checkout` | `current_user` | Create Stripe Checkout session; returns `{url}` |
+| `POST /stripe/webhook` | Stripe signature | Credit coins after verified payment |
+
+### Database
+
+- **Local dev:** SQLite file at `DATABASE_URL` (default `sqlite:///./billing.db`). File is gitignored.
+- **Production swap:** Set `DATABASE_URL=postgres://...` and replace `billing_db.py` with an asyncpg implementation (see inline comments in `billing_db.py`).
+
+### Dev auth shim
+
+`frontend/auth_client.js` (loaded as a plain script before each page's own script) exposes `window.Auth`. In dev mode it stores an `auth_id` in localStorage and adds `X-Dev-User` headers. Use `Auth.devSignIn('user_alice')` in the browser console to sign in. The module docstring describes the Clerk/Supabase replacement pattern.
+
+### Deduction seam (unwired, Phase 1)
+
+`billing_db.charge_coins()` and `billing_db.refund_coins()` are fully implemented and tested but not called by any generation endpoint. Phase 2 wires them via a `Depends(charge_coins(cost, reason))` FastAPI dependency on the 7 generation routes. See `design-specs/accounts-credits-architecture.md` §5 for the Phase 2 wiring plan.
+
+### Frontend
+
+- **`frontend/account.html` / `account.js` / `account.css`** — Wallet page: balance card, transaction history, buy-coins package selection, Stripe Checkout redirect, and `?return=success`/`?return=cancel` polling states.
+- **Header auth chip** — `#authChip` element added to `book_builder.html` and `account.html`. Other pages have a `TODO` comment in their headers marking the insertion point. The chip calls `Auth.initChip()` from `auth_client.js` and silently hides itself when billing is off.
+
+### Tests
+
+`tests/test_billing.py` — fully offline pytest suite covering: idempotency of `credit_coins` and `refund_coins`, `record_stripe_event` dedup, balance-always-equals-ledger-sum invariant, `charge_coins` debit and `InsufficientCoins` when short, `get_or_create_profile` idempotency, and basic concurrency.
