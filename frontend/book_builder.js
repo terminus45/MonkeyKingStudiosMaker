@@ -187,8 +187,9 @@ document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
 // ── Decompose ──────────────────────────────────────────────────────────────
 autoGenBtn.addEventListener('click', async () => {
   if (await runDecompose()) {
-    step3.scrollIntoView({ behavior: 'smooth', block: 'start' });
     queueBtn.click();
+    // Scroll to the bottom so the page cards + image-generation progress are in view.
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
   }
 });
 
@@ -357,8 +358,8 @@ pageGrid.addEventListener('change', e => {
 function getGeminiModel() {
   try {
     const d = JSON.parse(localStorage.getItem('monkeyking_cg_draft') || '{}');
-    return d.model || 'imagen-4.0-generate-001';
-  } catch { return 'imagen-4.0-generate-001'; }
+    return d.model || 'imagen-4.0-fast-generate-001';
+  } catch { return 'imagen-4.0-fast-generate-001'; }
 }
 
 // ── Single-page regeneration ───────────────────────────────────────────────
@@ -578,6 +579,13 @@ function setQueueLoading(on) {
   stopBtn.classList.toggle('hidden', !on);
   stopBtn.disabled = false;
   stopBtn.textContent = '■ Stop';
+  // The "Generate Story and Pictures" button must stay disabled through the
+  // IMAGE phase too — not just the story phase. runDecompose's finally re-enables
+  // it when the story is done; the image queue (started right after) re-claims it
+  // here and only releases it when all images finish (or generation is stopped).
+  autoGenBtn.disabled = on;
+  autoGenLabel.textContent = on ? 'Generating…' : '⚡ Generate Story and Pictures';
+  autoGenSpinner.classList.toggle('hidden', !on);
 }
 
 // ── Aggregate progress ─────────────────────────────────────────────────────

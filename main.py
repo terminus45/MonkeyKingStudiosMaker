@@ -64,7 +64,7 @@ class GenerateRequest(BaseModel):
     style_prompt: str = ""
     negative_prompt: Optional[str] = ""
     provider: str = "gemini"       # always "gemini"; field kept for stale-client compat
-    gemini_model: str = "imagen-4.0-generate-001"
+    gemini_model: str = "imagen-4.0-fast-generate-001"
     gemini_aspect_ratio: Optional[str] = None
     gemini_key: Optional[str] = None   # per-request override (mobile clients)
     width: int = 1024

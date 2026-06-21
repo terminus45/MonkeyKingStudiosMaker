@@ -228,11 +228,14 @@ cgGenerateBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Scroll to the bottom so the generating portrait comes into view.
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+
   // Read generation prefs (model + aspect ratio) from the draft set by Settings.
   // model is used for BOTH the generate payload and the gallery save.
   // Default model must stay in sync with first imagen id in gemini_generator.GEMINI_MODELS.
   const draft = (() => { try { return JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}'); } catch { return {}; } })();
-  const model = draft.model || 'imagen-4.0-generate-001';
+  const model = draft.model || 'imagen-4.0-fast-generate-001';
   const ar    = draft.ar || '3:4';
 
   hideError();

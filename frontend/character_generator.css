@@ -92,8 +92,16 @@
 /* Action row */
 .cg-action-row {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .6rem;
+}
+/* Download + Use as Book Cover sit centered beneath the large Create Figure button */
+.cg-secondary-actions {
+  display: flex;
   gap: .5rem;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 /* ── Session strip ── */

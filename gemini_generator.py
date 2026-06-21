@@ -16,11 +16,13 @@ def save_image(image: Image.Image, filename: str) -> str:
     image.save(path)
     return path
 
+# `name` is display-only (shown in the Settings dropdown); the per-image cost is
+# appended in parentheses. `id`/`type` drive generation/routing — do not append there.
 GEMINI_MODELS = [
-    {"id": "imagen-4.0-generate-001",      "name": "Imagen 4",            "type": "imagen"},
-    {"id": "imagen-4.0-fast-generate-001", "name": "Imagen 4 Fast",       "type": "imagen"},
-    {"id": "imagen-4.0-ultra-generate-001","name": "Imagen 4 Ultra",      "type": "imagen"},
-    {"id": "gemini-2.5-flash-image",       "name": "Gemini 2.5 Flash",    "type": "gemini"},
+    {"id": "imagen-4.0-generate-001",      "name": "Imagen 4 ($0.04/image)",        "type": "imagen"},
+    {"id": "imagen-4.0-fast-generate-001", "name": "Imagen 4 Fast ($0.02/image)",   "type": "imagen"},
+    {"id": "imagen-4.0-ultra-generate-001","name": "Imagen 4 Ultra ($0.06/image)",  "type": "imagen"},
+    {"id": "gemini-2.5-flash-image",       "name": "Gemini 2.5 Flash (~$0.04/image)", "type": "gemini"},
 ]
 
 ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"]
@@ -51,7 +53,7 @@ def generate(
     content_prompt: str,
     style_prompt: str = "",
     negative_prompt: str = "",
-    model_id: str = "imagen-4.0-generate-001",
+    model_id: str = "imagen-4.0-fast-generate-001",
     aspect_ratio: Optional[str] = None,
     width: int = 512,
     height: int = 512,

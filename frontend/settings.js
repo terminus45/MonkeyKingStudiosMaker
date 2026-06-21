@@ -219,8 +219,10 @@ async function loadGeminiModels() {
       settingsCgModel.appendChild(opt);
     });
 
-    // Default to first imagen model; restore saved draft value if available
-    const imagenOpt = models.find(m => m.type === 'imagen');
+    // Default to Imagen 4 Fast (cheapest), falling back to the first imagen model;
+    // restore saved draft value if available.
+    const imagenOpt = models.find(m => m.id === 'imagen-4.0-fast-generate-001')
+                   || models.find(m => m.type === 'imagen');
     if (imagenOpt) settingsCgModel.value = imagenOpt.id;
 
     // Restore from draft — overrides the default if a saved value matches

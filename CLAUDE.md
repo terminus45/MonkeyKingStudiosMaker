@@ -23,6 +23,28 @@ Environment variables are loaded from `.env` at startup via `start.sh`. Copy `.e
 
 API keys can also be managed at runtime from the **Settings** page (gear icon, top-left of every header), which persists them server-side to `config.json` (gitignored) and applies them without a restart. Key resolution precedence at every generation call site is **per-request override → `config.json` → environment variable** (see `settings_store.get_key`).
 
+### Tests & checks
+
+There is **no configured linter and no build step**. Verification is lightweight and scaled to the change (see the agent workflow). Tests under `tests/` are purpose-built per-feature scripts (not a comprehensive suite); `tester-agent` adds them for large-scale changes.
+
+```bash
+# Python tests use pytest, which is NOT in requirements.txt — install once:
+pip install pytest
+pytest tests/                                  # all Python tests
+pytest tests/test_page_count.py                # a single file
+pytest tests/test_recheck_readings.py -k decompose_tool   # a single test (by keyword)
+
+# JS tests are plain Node scripts (no test runner); run directly:
+node tests/test_storybook_print_fallback.js
+node tests/test_cover_title.js
+
+# Sanity checks used in place of a linter (what agents run before reporting done):
+node --check frontend/book_builder.js
+python3 -c "import ast; ast.parse(open('main.py').read())"
+```
+
+Most tests are offline (no API/network). Live paths that need real keys (e.g. the `/decompose` round-trip) are guarded/skipped when the key is absent.
+
 ## Architecture
 
 **Single-process FastAPI server** (`main.py`) that serves both the REST API and the static frontend. There are no separate processes, no database, and no build step for the frontend. The frontend lives in `frontend/` and is served as a static mount — that mount must remain last in `main.py` to avoid shadowing API routes.

@@ -171,29 +171,34 @@
 
       <!-- ACTION ROW (hidden until image ready) -->
       <div class="cg-action-row hidden" id="cgActionRow">
-        <a
-          class="settings-btn"
-          id="cgDownloadBtn"
-          href="#"
-          download="character-portrait.png"
-          aria-label="Download portrait image"
-        >↓ Download</a>
-
+        <!-- Create Figure is the primary action — large button like the main generator -->
         <button
-          class="settings-btn"
-          id="cgUseAsCoverBtn"
-          aria-label="Copy filename to clipboard for use as book cover"
-        >📖 Use as Book Cover</button>
-
-        <button
-          class="settings-btn settings-btn--accent"
+          class="generate-btn"
           id="cgCreateFigureBtn"
+          style="width: 100%"
           aria-label="Turn this portrait into a 3D figure in Figure Maker"
           disabled
         >
           <span id="cgCreateFigureLabel">🧩 Create Figure</span>
           <div class="spinner hidden" id="cgCreateFigureSpinner" aria-hidden="true"></div>
         </button>
+
+        <!-- Secondary actions, centered beneath -->
+        <div class="cg-secondary-actions">
+          <a
+            class="settings-btn"
+            id="cgDownloadBtn"
+            href="#"
+            download="character-portrait.png"
+            aria-label="Download portrait image"
+          >↓ Download</a>
+
+          <button
+            class="settings-btn"
+            id="cgUseAsCoverBtn"
+            aria-label="Copy filename to clipboard for use as book cover"
+          >📖 Use as Book Cover</button>
+        </div>
       </div>
 
     </section>

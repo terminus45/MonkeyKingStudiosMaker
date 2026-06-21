@@ -219,6 +219,8 @@ fmGenerateBtn.addEventListener('click', async () => {
   setGenerating(true);
   setInputsDisabled(true);
   showProgress();
+  // Scroll to the bottom so the progress + 3D viewer come into view.
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
   setProgress(0);
   setBoltBouncing(true);
   setBoltMessage('prompting');
