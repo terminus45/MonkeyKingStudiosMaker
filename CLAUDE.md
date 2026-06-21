@@ -40,9 +40,9 @@ API keys can also be managed at runtime from the **Settings** page (gear icon, t
 
 **Image generation** (`POST /generate/stream`): SSE endpoint runs Gemini/Imagen generation in a background thread, bridges results to an `asyncio.Queue`, and streams `{"step": 0, "total": 1}` then `{"done": true, "filename": "...", "seed": -1}`. The non-streaming `POST /generate` also exists for programmatic use. Both use Gemini exclusively (`gemini_generator.generate()`) and save via `gemini_generator.save_image()`. The SD pipeline has been removed.
 
-**Story decomposition** (`POST /decompose`): Calls Claude using **forced tool use** (`tool_choice: {type: "tool", name: "submit_storybook"}`). The tool schema enforces the storybook JSON structure — the API validates the model's response against it before returning, guaranteeing structural correctness. The system prompt (from `languages.py`) is cached with `cache_control: ephemeral`. Falls back to text parsing only if the model ignores the forced tool call. `_decompose_tool(lang, *, min_pages, max_pages, include_image_prompt)` is parameterized so it can be reused by `/recheck-readings`.
+**Story decomposition** (`POST /decompose`): Calls Claude (`claude-opus-4-8`) using **forced tool use** (`tool_choice: {type: "tool", name: "submit_storybook"}`). The tool schema enforces the storybook JSON structure — the API validates the model's response against it before returning, guaranteeing structural correctness. The system prompt (from `languages.py`) is cached with `cache_control: ephemeral`. Falls back to text parsing only if the model ignores the forced tool call. `_decompose_tool(lang, *, min_pages, max_pages, include_image_prompt)` is parameterized so it can be reused by `/recheck-readings`.
 
-**Readings re-check** (`POST /recheck-readings`): Accepts `{language, pages: PageData[], anthropic_key?}`. Strips `image_prompt` from the pages before sending to Claude (preserving it client-side to save tokens), calls `claude-opus-4-7` with the correction system prompt from `languages.correction_prompt()` (which wraps the per-language reading rules from `languages.py`), and returns the same page array with corrected native text, reading strings, and re-aligned `characters[]`. Response is a plain dict (no `response_model`) since `image_prompt` is absent. Key resolution and error codes mirror `/decompose` exactly (503 for missing key, 502 for Claude API error). The `_decompose_tool` is called with `min_pages=max_pages=len(req.pages)` and `include_image_prompt=False` so the schema matches the actual page count and omits `image_prompt` from required fields.
+**Readings re-check** (`POST /recheck-readings`): Accepts `{language, pages: PageData[], anthropic_key?}`. Strips `image_prompt` from the pages before sending to Claude (preserving it client-side to save tokens), calls `claude-opus-4-8` with the correction system prompt from `languages.correction_prompt()` (which wraps the per-language reading rules from `languages.py`), and returns the same page array with corrected native text, reading strings, and re-aligned `characters[]`. Response is a plain dict (no `response_model`) since `image_prompt` is absent. Key resolution and error codes mirror `/decompose` exactly (503 for missing key, 502 for Claude API error). The `_decompose_tool` is called with `min_pages=max_pages=len(req.pages)` and `include_image_prompt=False` so the schema matches the actual page count and omits `image_prompt` from required fields.
 
 **`characters[]` round-trip fix**: `readCard()` in `book_builder.js` now carries `characters[]` forward from `storyData` rather than reading from the DOM (it was never in the DOM). When a card is flagged `data-readings-stale="true"` (set when the user edits the native textarea after a Check Readings Apply), `characters` is set to `null` so the stale array is never exported as wrong ruby — it degrades to the deterministic fallback in `renderRubyText`.
 
@@ -117,17 +117,18 @@ This means the local sheet works both for freshly-built books (authoritative `ch
 
 `storybook_print.js` (shared by both print and HTML export flows) fetches each page's image, converts to base64, and assembles a self-contained HTML document with inline styles and images — no server round-trips at read time.
 
-## Agent workflow (`agents/`)
+## Agent workflow (`.claude/agents/`)
 
-Five Claude Code sub-agents define the feature development workflow. For any non-trivial change, follow this sequence:
+Six Claude Code sub-agents define the feature development workflow. For any non-trivial change, follow this sequence:
 
 1. **`product-manager`** — orchestrator. Clarifies scope, defines acceptance criteria, and sequences delegation to the other agents. Always start here for new features.
 2. **`design-agent`** — UI/UX spec. Produces component/layout specs as Markdown under `/design-specs/` (not final code). Runs before any implementation.
 3. **`architect-agent`** — technical review. Evaluates the proposed plan for architectural consistency, data flow correctness, and breaking changes. Must approve before `developer-agent` begins, and reviews the diff again after implementation.
-4. **`developer-agent`** — implementation. Writes code following the approved spec and existing conventions; runs lightweight sanity checks (not full test scripts) before reporting completion.
-5. **`tester-agent`** — test-script generation. Invoked by `product-manager` **only for large-scale changes** (new subsystem, API-contract change, multi-file feature, or shared-data-flow change). Generates and runs purpose-built test scripts under `tests/`; reports bugs back rather than fixing them. Skipped for small/localized changes — scale verification effort to the size and risk of the change.
+4. **`cyber-architect`** — security audit. Invoked by `product-manager` for **security-sensitive changes** (auth/authorization, payments/billing, secrets, user data/PII, file uploads, external input, DB access, new network/API surface) — on the design and again on the diff. Produces a severity-rated report; treats Critical/High findings as blocking. Audits only; does not fix.
+5. **`developer-agent`** — implementation. Writes code following the approved spec and existing conventions; runs lightweight sanity checks (not full test scripts) before reporting completion.
+6. **`tester-agent`** — test-script generation. Invoked by `product-manager` **only for large-scale changes** (new subsystem, API-contract change, multi-file feature, or shared-data-flow change). Generates and runs purpose-built test scripts under `tests/`; reports bugs back rather than fixing them. Skipped for small/localized changes — scale verification effort to the size and risk of the change.
 
-Sub-agents are invoked via Claude Code's `--agent` flag or the Agent tool, pointing at the `.md` files in `agents/`.
+Sub-agents live in `.claude/agents/` (the canonical Claude Code project-agents directory — the former duplicate `agents/` folder was removed). They are invoked via the Agent tool (`subagent_type`) or `@.claude/agents/<name>.md`.
 
 ## Adding a new language
 
