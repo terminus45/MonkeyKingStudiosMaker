@@ -11,9 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Stop the server
 ./stopServer.sh
 
-# Or manually
+# Or manually (defaults to loopback; use --host 0.0.0.0 for LAN/phone access)
 source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 
 # Install dependencies into the venv
 pip install -r requirements.txt
@@ -47,11 +47,13 @@ Most tests are offline (no API/network). Live paths that need real keys (e.g. th
 
 ## Architecture
 
-**Single-process FastAPI server** (`main.py`) that serves both the REST API and the static frontend. There are no separate processes, no database, and no build step for the frontend. The frontend lives in `frontend/` and is served as a static mount — that mount must remain last in `main.py` to avoid shadowing API routes.
+**Single-process FastAPI server** (`main.py`) that serves both the REST API and the static frontend. There are no separate processes, no database, and no build step for the frontend. The frontend lives in `frontend/` and is served as a static mount — that mount must remain last in `main.py` to avoid shadowing API routes. The frontend is **same-origin** with the API, so **CORS is off by default**; opt in only by setting `CORS_ALLOW_ORIGINS` (comma-separated origin list — never `*`, since every endpoint is unauthenticated).
+
+> **Known security/architecture backlog:** a read-only sweep (2026-06-21) fixed the trivial items (loopback `HOST` default, CORS lockdown, dep pinning, `.env` perms, dead `/status` removal, stale status label). Deferred items — no auth on cost-bearing endpoints, unbounded job stores, file/gallery cleanup, the 4× language-registry and dual pinyin-splitter duplication — are tracked in **`design-specs/security-architecture-backlog.md`**. The no-auth items are the natural scope of the planned auth phase.
 
 ### Backend modules
 
-- **`config.py`** — all configuration via `os.getenv`. All other modules import from here; changing a default means changing it here. SD/LoRA/device settings have been removed; only `OUTPUT_DIR`, `FIGURES_DIR`, API key names, `SAFETY_STYLE_SUFFIX`, `HOST`, and `PORT` remain.
+- **`config.py`** — all configuration via `os.getenv`. All other modules import from here; changing a default means changing it here. SD/LoRA/device settings have been removed; only `OUTPUT_DIR`, `FIGURES_DIR`, API key names, `SAFETY_STYLE_SUFFIX`, `HOST`, and `PORT` remain. **`HOST` defaults to `127.0.0.1`** (loopback) — the API is unauthenticated and drives paid third-party calls, so it is not LAN-reachable out of the box; set `HOST=0.0.0.0` to access from a phone/other device.
 - **`gemini_generator.py`** — stateless functions for Google Imagen and Gemini image generation. Lazily imports `google-genai` so the server starts even if the package is absent. Exposes `save_image(image, filename)` to write PNGs to `OUTPUT_DIR`.
 - **`meshy_generator.py`** — stateless functions for Meshy.AI text-to-3D generation (preview → refine). Lazily imports `httpx`, reads the key at call time, and `download_model()` streams to a temp file then atomic-renames. The Meshy v2 REST flow returns a GLB (no STL — the **STL is exported client-side** in `figure_maker.js` from the loaded GLB via three.js `STLExporter`, so the download button needs no server round-trip).
 - **`settings_store.py`** — server-side API-key store. `load()`/`get_key()`/`set_keys()`/`status()`. Persists to `config.json` (atomic write + `chmod 0o600`); `status()` only ever exposes masked values. `get_key(name)` resolves `config.json` then environment.

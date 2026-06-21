@@ -9,6 +9,11 @@ MESHY_BASE = "https://api.meshy.ai"
 # Meshy rejects prompts longer than 800 characters (HTTP 400).
 MAX_PROMPT_CHARS = 800
 
+# Target mesh density for remeshed output. Meshy's default is only 30,000 (low-poly);
+# we request a denser mesh for more detailed figures. Range Meshy accepts: 100–300,000
+# (only applies when should_remesh=True). Hardcoded — not user-configurable.
+TARGET_POLYCOUNT = 200_000
+
 
 def _cap_prompt(prompt: str) -> str:
     """Trim a prompt to Meshy's 800-char limit at a word boundary."""
@@ -68,6 +73,7 @@ def create_preview_task(prompt: str, *, api_key: Optional[str] = None) -> str:
         "prompt": _cap_prompt(prompt),
         "art_style": "realistic",
         "should_remesh": True,
+        "target_polycount": TARGET_POLYCOUNT,
     }
     try:
         resp = httpx.post(
@@ -148,7 +154,7 @@ def get_image_to_3d_task(task_id: str, *, api_key: Optional[str] = None) -> dict
 
 
 def create_image_to_3d_task(image_data_uri: str, *, api_key: Optional[str] = None,
-                             ai_model: str = "meshy-5",
+                             ai_model: str = "latest",
                              should_texture: bool = True,
                              should_remesh: bool = True) -> str:
     """Submit an image-to-3D task. Returns the task_id string.
@@ -167,6 +173,7 @@ def create_image_to_3d_task(image_data_uri: str, *, api_key: Optional[str] = Non
         "ai_model": ai_model,
         "should_texture": should_texture,
         "should_remesh": should_remesh,
+        "target_polycount": TARGET_POLYCOUNT,
     }
     try:
         resp = httpx.post(

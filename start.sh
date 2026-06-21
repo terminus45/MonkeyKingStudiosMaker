@@ -7,10 +7,14 @@ if [ -f venv/bin/activate ]; then
   source venv/bin/activate
 fi
 
-# Load .env if present
+# Load .env if present (handles values with spaces/special chars safely).
+# Tighten its permissions first — it holds API keys.
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  chmod 600 .env 2>/dev/null || true
+  set -a
+  . ./.env
+  set +a
 fi
 
 echo "BookBuilderBot → http://localhost:${PORT:-8000}"
-uvicorn main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}" --reload
+uvicorn main:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}" --reload

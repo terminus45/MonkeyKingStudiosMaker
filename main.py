@@ -49,12 +49,20 @@ app = FastAPI(title="BookBuilderBot", lifespan=lifespan)
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The frontend is served same-origin from this app, so no CORS is needed by
+# default. Opt in to cross-origin access by setting CORS_ALLOW_ORIGINS to a
+# comma-separated origin list (never a bare "*" alongside the unauthenticated,
+# credit-spending endpoints).
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
+]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -80,24 +88,6 @@ class GenerateResponse(BaseModel):
     image_base64: Optional[str] = None
 
 
-# ── Generation status (shared across requests) ────────────────────────────────
-
-_gen_status: dict = {
-    "generating": False,
-    "step": 0,
-    "total": 0,
-    "last_filename": None,
-    "last_seed": None,
-    "last_model": None,
-}
-_gen_status_lock = threading.Lock()
-
-
-def _status_update(patch: dict):
-    with _gen_status_lock:
-        _gen_status.update(patch)
-
-
 def _safe_style(style: Optional[str]) -> str:
     """Append the child-safety guardrail to a Style Prompt (idempotent)."""
     s = (style or "").strip()
@@ -115,13 +105,6 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.get("/status")
-def generation_status():
-    with _gen_status_lock:
-        return dict(_gen_status)
-
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -165,8 +148,6 @@ async def generate_stream(req: GenerateRequest):
     queue: asyncio.Queue = asyncio.Queue()
 
     def run():
-        _status_update({"generating": True, "step": 0, "total": 1,
-                        "last_filename": None, "last_seed": None, "last_model": None})
         try:
             if not req.gemini_model:
                 raise ValueError("No Gemini model selected.")
@@ -183,12 +164,6 @@ async def generate_stream(req: GenerateRequest):
             )
             filename = f"{uuid.uuid4().hex}.png"
             gemini_generator.save_image(image, filename)
-            _status_update({
-                "generating": False,
-                "last_filename": filename,
-                "last_seed": -1,
-                "last_model": req.gemini_model,
-            })
             loop.call_soon_threadsafe(queue.put_nowait, {
                 "done": True,
                 "filename": filename,
@@ -197,7 +172,6 @@ async def generate_stream(req: GenerateRequest):
             })
         except Exception as e:
             import traceback; traceback.print_exc()
-            _status_update({"generating": False})
             loop.call_soon_threadsafe(queue.put_nowait, {"error": str(e)})
 
     threading.Thread(target=run, daemon=True).start()

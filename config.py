@@ -1,7 +1,10 @@
 import os
 
 # Server
-HOST = os.getenv("HOST", "0.0.0.0")
+# Default to loopback so the API (which is unauthenticated and drives paid
+# third-party calls) is not reachable from the LAN out of the box. Set
+# HOST=0.0.0.0 to access from another device (e.g. a phone on your network).
+HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 
 # Output

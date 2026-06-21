@@ -88,7 +88,7 @@ async function checkHealth() {
     const res  = await fetch(`${API}/health`);
     const data = await res.json();
     statusDot.className    = 'status-dot ok';
-    statusLabel.textContent = `Connected · ${data.loaded_model?.split('/').pop() ?? 'unknown'}`;
+    statusLabel.textContent = 'Connected';
   } catch {
     statusDot.className    = 'status-dot error';
     statusLabel.textContent = 'Server offline';
