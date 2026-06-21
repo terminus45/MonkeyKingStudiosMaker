@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account · MonkeyKing</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0a0b1a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="account.css">
+</head>
+<body>
+
+  <a href="#accountMain" class="skip-link">Skip to main content</a>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       HEADER — hand-copied on all 6 pages (add auth-chip before server-status).
+       When adding the chip to remaining pages (character_generator, figure_maker,
+       gallery, settings), copy the #authChip <a> element to each header in the
+       same position shown here: between .header-nav and .server-status.
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <header>
+    <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
+      <div class="header-title">
+        <span class="title-zh">🤖</span>
+        <span class="title-en">Monkey King Studios</span>
+      </div>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
+        <a href="book_builder.html"        class="nav-link">📖 Book Builder</a>
+        <a href="figure_maker.html"        class="nav-link">🧩 Figure Maker</a>
+        <a href="gallery.html"             class="nav-link">🖼 Gallery</a>
+      </nav>
+      <!-- Auth chip: populated by auth_client.js initChip() on DOMContentLoaded -->
+      <a id="authChip" class="auth-chip" href="account.html?intent=signin" aria-label="Sign in to your account">
+        <span class="auth-chip-skeleton"></span>
+      </a>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="account-main" id="accountMain">
+
+    <!-- ── Return states (success / cancel from Stripe) ── -->
+    <!-- These sections are shown/hidden by JS based on ?return= query param -->
+
+    <section id="returnSuccess" class="return-card account-card" style="display:none" role="status">
+      <div class="return-icon return-icon--success" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+      </div>
+      <h1 class="return-heading">Payment received!</h1>
+      <p class="return-sub">We're crediting your coins now.<br>This usually takes a few seconds.</p>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem;">Your balance:</p>
+      <div id="returnBalanceSlot">
+        <p class="balance-updating">Updating</p>
+      </div>
+      <div class="return-actions" style="margin-top:1.25rem">
+        <a href="account.html" class="return-btn-secondary">Go to Account</a>
+      </div>
+    </section>
+
+    <section id="returnCancel" class="return-card account-card" style="display:none" role="status">
+      <div class="return-icon return-icon--cancel" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M15 9l-6 6M9 9l6 6"/>
+        </svg>
+      </div>
+      <h1 class="return-heading">Checkout cancelled</h1>
+      <p class="return-sub">No payment was taken.<br>Your balance is unchanged.</p>
+      <div class="return-actions">
+        <a href="account.html" class="return-btn-secondary">Buy coins</a>
+        <a href="book_builder.html" class="return-btn-secondary">Back to app</a>
+      </div>
+    </section>
+
+    <!-- ── Main account view ── -->
+    <div id="accountView" class="account-grid">
+
+      <!-- LEFT column: balance + transaction history -->
+      <div class="account-left">
+
+        <!-- Balance card -->
+        <div class="account-card" id="balanceCard">
+          <p class="account-card-title">Your Balance</p>
+
+          <div class="account-balance-display">
+            <div class="account-balance-row">
+              <svg class="account-balance-icon" aria-hidden="true" width="28" height="28"
+                   viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="10" opacity=".2"/>
+                <text x="12" y="16.5" text-anchor="middle" font-size="11"
+                      font-weight="700" fill="currentColor">¢</text>
+              </svg>
+              <span id="balanceNumber" class="account-balance-number" aria-live="polite">
+                <span class="account-balance-skeleton"></span>
+              </span>
+            </div>
+            <span class="account-balance-label">coins</span>
+          </div>
+
+          <p class="account-balance-rate">100 coins = $1.00</p>
+          <hr class="account-card-divider">
+          <p class="account-balance-last" id="lastCreditedLine">&nbsp;</p>
+        </div>
+
+        <!-- Transaction history card -->
+        <div class="account-card" id="txnCard">
+          <p class="account-card-title">Transaction History</p>
+          <div class="account-txn-list" id="txnList" aria-live="polite">
+            <!-- Skeleton -->
+            <div class="account-txn-skeleton"></div>
+            <div class="account-txn-skeleton"></div>
+            <div class="account-txn-skeleton"></div>
+          </div>
+        </div>
+
+      </div><!-- /account-left -->
+
+      <!-- RIGHT column: buy coins -->
+      <div class="account-right">
+
+        <div class="account-card" id="buyCard">
+          <p class="account-card-title">Buy Coins</p>
+          <p style="font-size:.82rem;color:var(--muted);margin-bottom:1rem;">Coins never expire.</p>
+
+          <!-- Package radio group — populated by JS from GET /billing/packages -->
+          <div class="account-pkg-group" id="pkgGroup" role="radiogroup" aria-label="Coin package">
+            <!-- JS-rendered package cards -->
+            <p style="color:var(--muted);font-size:.85rem" id="pkgLoading">Loading packages…</p>
+          </div>
+
+          <button id="checkoutBtn" class="generate-btn account-checkout-btn"
+                  disabled aria-label="Checkout with Stripe"
+                  aria-disabled="true">
+            Checkout with Stripe →
+          </button>
+
+          <p class="buy-error" id="buyError" role="alert"></p>
+
+          <!-- Signed-out nudge (shown when billing active but user not signed in) -->
+          <p id="signInNudge" style="display:none;font-size:.82rem;color:var(--muted);margin-top:.75rem;text-align:center">
+            <a href="account.html?intent=signin" style="color:var(--mustard)">Sign in</a> to purchase coins.
+          </p>
+        </div>
+
+      </div><!-- /account-right -->
+
+    </div><!-- /account-grid -->
+
+  </main>
+
+  <!-- auth_client.js is the dev shim. Replace with vendor SDK at Phase 2. -->
+  <script src="auth_client.js"></script>
+  <script src="account.js"></script>
+</body>
+</html>

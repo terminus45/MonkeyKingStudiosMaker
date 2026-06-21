@@ -123,6 +123,48 @@ header {
 .status-dot.ok    { background: #4ade80; box-shadow: 0 0 5px #4ade80; }
 .status-dot.error { background: #f87171; box-shadow: 0 0 5px #f87171; }
 
+/* ── Auth chip (shared header element, all pages) ── */
+/* Sits between the nav and the server-status dot. flex-shrink:0 so it never collapses. */
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  background: rgba(255,255,255,.08);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: .3rem .7rem;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  min-height: 36px;
+  flex-shrink: 0;
+  transition: background .15s, color .15s;
+  cursor: pointer;
+}
+.auth-chip:hover  { background: rgba(255,255,255,.14); color: var(--ink); }
+.auth-chip:focus  { outline: none; box-shadow: 0 0 0 2px #ff6b35; }
+/* Hide " coins" label on very narrow viewports — icon + number remain */
+@media (max-width: 480px) { .auth-chip .auth-chip-label { display: none; } }
+
+/* Loading skeleton while auth state resolves */
+.auth-chip-skeleton {
+  display: block;
+  width: 60px;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255,255,255,.07);
+  animation: auth-pulse 1.5s ease-in-out infinite;
+}
+@keyframes auth-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-chip-skeleton { animation: none; }
+}
+
 /* ── Base main (overridden by page CSS) ── */
 main {
   flex: 1;
