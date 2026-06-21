@@ -104,6 +104,16 @@
   justify-content: center;
 }
 
+/* Create Figure: same size as the main generator, but a DISTINCT violet color
+   (the page's generate button is orange/mustard) so the two are never confused. */
+.generate-btn--figure {
+  background: #7b61ff;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+.generate-btn--figure:hover:not(:disabled)  { background: #6a4ff0; }
+.generate-btn--figure:active:not(:disabled) { background: #5b40e0; }
+
 /* ── Session strip ── */
 
 .cg-strip-section {

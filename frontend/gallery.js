@@ -4,12 +4,18 @@
 let _three = null;
 async function loadThree() {
   if (_three) return _three;
-  const [THREE, gltf, orbit] = await Promise.all([
+  const [THREE, gltf, orbit, roomEnv] = await Promise.all([
     import('three'),
     import('three/addons/loaders/GLTFLoader.js'),
     import('three/addons/controls/OrbitControls.js'),
+    import('three/addons/environments/RoomEnvironment.js'),
   ]);
-  _three = { THREE, GLTFLoader: gltf.GLTFLoader, OrbitControls: orbit.OrbitControls };
+  _three = {
+    THREE,
+    GLTFLoader: gltf.GLTFLoader,
+    OrbitControls: orbit.OrbitControls,
+    RoomEnvironment: roomEnv.RoomEnvironment,
+  };
   return _three;
 }
 
@@ -32,12 +38,16 @@ const booksEmpty          = document.getElementById('booksEmpty');
 const modelsGrid          = document.getElementById('modelsGrid');
 const modelsEmpty         = document.getElementById('modelsEmpty');
 
-const modelViewerModal    = document.getElementById('modelViewerModal');
-const modelViewerBackdrop = document.getElementById('modelViewerBackdrop');
-const modelViewerClose    = document.getElementById('modelViewerClose');
-const modelViewerTitle    = document.getElementById('modelViewerTitle');
-const modelViewerCanvas   = document.getElementById('modelViewerCanvas');
-const modelViewerDownload = document.getElementById('modelViewerDownload');
+const modelViewerModal      = document.getElementById('modelViewerModal');
+const modelViewerBackdrop   = document.getElementById('modelViewerBackdrop');
+const modelViewerClose      = document.getElementById('modelViewerClose');
+const modelViewerTitle      = document.getElementById('modelViewerTitle');
+const modelViewerCanvas     = document.getElementById('modelViewerCanvas');
+const modelViewerDownload   = document.getElementById('modelViewerDownload');
+const modelViewerFullscreen = document.getElementById('modelViewerFullscreen');
+
+// The .model-viewer-content div is the MAXIMIZED element (wraps header + canvas + footer).
+const modelViewerContent    = modelViewerModal.querySelector('.model-viewer-content');
 
 // ── State ───────────────────────────────────────────────────────────────────
 let activeTab = 'none';
@@ -49,7 +59,9 @@ let modalRenderer    = null;
 let modalAnimId      = null;
 let modalControls    = null;
 let modalRo          = null;
+let modalEnvMap      = null;
 let autoRotateTimer  = null;
+let _modalFsCleanup  = null;   // cleanup fn returned by ViewerFullscreen.onFullscreenChange
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function escHtml(str) {
@@ -442,6 +454,11 @@ function openModelViewer(glbUrl, title, triggerBtn) {
 }
 
 function closeModelViewer() {
+  // Force-exit fullscreen/maximized first so the page isn't stranded in
+  // fullscreen mode with a torn-down scene.
+  if (window.ViewerFullscreen && window.ViewerFullscreen.isMaximized(modelViewerContent)) {
+    window.ViewerFullscreen.toggle(modelViewerContent, { onResize: function () {} });
+  }
   modelViewerModal.classList.add('hidden');
   document.body.style.overflow = '';
   teardownModalViewer();
@@ -453,8 +470,30 @@ function teardownModalViewer() {
   if (modalAnimId)     { cancelAnimationFrame(modalAnimId); modalAnimId = null; }
   if (modalRo)         { modalRo.disconnect(); modalRo = null; }
   if (modalControls)   { modalControls.dispose(); modalControls = null; }
+  if (modalEnvMap)     { modalEnvMap.dispose(); modalEnvMap = null; }
   if (modalRenderer)   { modalRenderer.dispose(); modalRenderer = null; }
-  while (modelViewerCanvas.firstChild) modelViewerCanvas.removeChild(modelViewerCanvas.firstChild);
+  // Remove all canvas children EXCEPT the fullscreen button (which lives in the HTML
+  // and must persist for future openings — only the renderer canvas is dynamic).
+  Array.from(modelViewerCanvas.childNodes).forEach(node => {
+    if (node !== modelViewerFullscreen) modelViewerCanvas.removeChild(node);
+  });
+  // Hide the fullscreen button and deregister the fullscreenchange listener.
+  modelViewerFullscreen.classList.add('hidden');
+  if (_modalFsCleanup) { _modalFsCleanup(); _modalFsCleanup = null; }
+}
+
+// Clear the canvas's dynamic children (loading text / old renderer canvas) while
+// PRESERVING the static fullscreen button — `container.textContent = …` would delete it.
+function _setModalCanvasMsg(msg) {
+  Array.from(modelViewerCanvas.childNodes).forEach(node => {
+    if (node !== modelViewerFullscreen) modelViewerCanvas.removeChild(node);
+  });
+  if (msg) {
+    const p = document.createElement('p');
+    p.className = 'model-viewer-loading';
+    p.textContent = msg;
+    modelViewerCanvas.appendChild(p);
+  }
 }
 
 async function mountModalViewer(glbUrl) {
@@ -464,18 +503,20 @@ async function mountModalViewer(glbUrl) {
 
   // Load three.js on demand. If the CDN is unreachable, fall back gracefully —
   // the user can still download the GLB from the modal footer.
-  let THREE, GLTFLoader, OrbitControls;
-  container.textContent = 'Loading 3D viewer…';
+  let THREE, GLTFLoader, OrbitControls, RoomEnvironment;
+  // NOTE: do NOT use container.textContent to set/clear — the fullscreen button is
+  // a static child of this container and textContent would delete it permanently.
+  _setModalCanvasMsg('Loading 3D viewer…');
   try {
-    ({ THREE, GLTFLoader, OrbitControls } = await loadThree());
+    ({ THREE, GLTFLoader, OrbitControls, RoomEnvironment } = await loadThree());
   } catch (err) {
     console.error('Failed to load three.js', err);
-    container.textContent = 'Could not load the 3D viewer (are you offline?). You can still download the GLB below.';
+    _setModalCanvasMsg('Could not load the 3D viewer (are you offline?). You can still download the GLB below.');
     return;
   }
   // The modal may have been closed while three.js was loading.
   if (modelViewerModal.classList.contains('hidden')) return;
-  container.textContent = '';
+  _setModalCanvasMsg('');
 
   const w = container.clientWidth  || 720;
   const h = container.clientHeight || 340;
@@ -484,6 +525,8 @@ async function mountModalViewer(glbUrl) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(w, h);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   const canvas = renderer.domElement;
   canvas.setAttribute('aria-hidden', 'true');
   container.appendChild(canvas);
@@ -492,6 +535,13 @@ async function mountModalViewer(glbUrl) {
   const scene  = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 1000);
   camera.position.set(0, 0, 3);
+
+  // Image-based lighting (procedural studio room) so PBR materials read as bright as
+  // Meshy's studio-lit thumbnail instead of looking dark/flat under direct lights.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  modalEnvMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = modalEnvMap;
+  pmrem.dispose();
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -511,6 +561,16 @@ async function mountModalViewer(glbUrl) {
     autoRotateTimer = setTimeout(() => { if (modalControls) modalControls.autoRotate = true; }, 10000);
   });
 
+  // Shared resize routine for this viewer instance.
+  function applyModalResize() {
+    if (!modalRenderer) return;
+    const nw = container.clientWidth;
+    const nh = container.clientHeight;
+    modalRenderer.setSize(nw, nh);
+    camera.aspect = nw / nh;
+    camera.updateProjectionMatrix();
+  }
+
   const loader = new GLTFLoader();
   loader.load(
     glbUrl,
@@ -527,19 +587,38 @@ async function mountModalViewer(glbUrl) {
       camera.position.set(0, sphere.radius * 0.3, sphere.radius * 2.5);
       controls.target.set(0, 0, 0);
       controls.update();
+
+      // Reveal the fullscreen button now that a model is confirmed loaded.
+      modelViewerFullscreen.classList.remove('hidden');
+
+      // Wire the fullscreen button.
+      if (window.ViewerFullscreen) {
+        function _syncModalFsBtn(maximized) {
+          modelViewerFullscreen.setAttribute('aria-pressed', maximized ? 'true' : 'false');
+          modelViewerFullscreen.setAttribute('aria-label', maximized ? 'Exit fullscreen' : 'Enter fullscreen');
+          modelViewerFullscreen.classList.toggle('is-fullscreen', maximized);
+        }
+
+        modelViewerFullscreen.onclick = () => {
+          window.ViewerFullscreen.toggle(modelViewerContent, { onResize: applyModalResize });
+          _syncModalFsBtn(window.ViewerFullscreen.isMaximized(modelViewerContent));
+        };
+
+        // Register fullscreenchange listener to sync when user exits via OS/Esc.
+        if (_modalFsCleanup) _modalFsCleanup();
+        _modalFsCleanup = window.ViewerFullscreen.onFullscreenChange(modelViewerContent, (maximized) => {
+          _syncModalFsBtn(maximized);
+          applyModalResize();
+        });
+
+        _syncModalFsBtn(window.ViewerFullscreen.isMaximized(modelViewerContent));
+      }
     },
     undefined,
     err => { console.error('GLTFLoader error in modal', err); }
   );
 
-  const ro = new ResizeObserver(() => {
-    if (!modalRenderer) return;
-    const nw = container.clientWidth;
-    const nh = container.clientHeight;
-    modalRenderer.setSize(nw, nh);
-    camera.aspect = nw / nh;
-    camera.updateProjectionMatrix();
-  });
+  const ro = new ResizeObserver(() => { applyModalResize(); });
   ro.observe(container);
   modalRo = ro;
 
@@ -557,13 +636,32 @@ modelViewerBackdrop.addEventListener('click', closeModelViewer);
 
 document.addEventListener('keydown', e => {
   if (modelViewerModal.classList.contains('hidden')) return;
+  // Ctrl+M toggles fullscreen (only once a model is loaded → button visible).
+  if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'm' || e.key === 'M')) {
+    if (!modelViewerFullscreen.classList.contains('hidden')) {
+      e.preventDefault();
+      modelViewerFullscreen.click();
+    }
+    return;
+  }
   if (e.key === 'Escape') {
+    // FIX ESCAPE ORDERING: if fullscreen/maximized is active, exit that first.
+    // The browser's native fullscreen API may intercept Esc itself (before this
+    // handler fires), in which case onFullscreenChange already synced the state.
+    // We guard here for the CSS-overlay path (no native API, or after native already exited).
+    if (window.ViewerFullscreen && window.ViewerFullscreen.isMaximized(modelViewerContent)) {
+      window.ViewerFullscreen.toggle(modelViewerContent, { onResize: function () {} });
+      return;   // do NOT close the modal — user must press Esc again
+    }
     closeModelViewer();
     return;
   }
-  // Focus trap
+  // Focus trap — includes the fullscreen button when it is visible
   if (e.key === 'Tab') {
     const focusable = [modelViewerClose, modelViewerDownload];
+    if (!modelViewerFullscreen.classList.contains('hidden')) {
+      focusable.push(modelViewerFullscreen);
+    }
     const first = focusable[0];
     const last  = focusable[focusable.length - 1];
     if (e.shiftKey && document.activeElement === first) {

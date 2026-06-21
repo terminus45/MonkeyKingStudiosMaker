@@ -171,9 +171,10 @@
 
       <!-- ACTION ROW (hidden until image ready) -->
       <div class="cg-action-row hidden" id="cgActionRow">
-        <!-- Create Figure is the primary action — large button like the main generator -->
+        <!-- Create Figure: large, but a DISTINCT color so it's never mistaken for
+             the orange "Generate Character" button at the top of the page. -->
         <button
-          class="generate-btn"
+          class="generate-btn generate-btn--figure"
           id="cgCreateFigureBtn"
           style="width: 100%"
           aria-label="Turn this portrait into a 3D figure in Figure Maker"

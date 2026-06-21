@@ -200,6 +200,16 @@
 
           <p class="fm-viewer-hint" id="fmViewerHint" aria-hidden="true">Drag to rotate · Scroll to zoom</p>
 
+          <!-- Fullscreen toggle — hidden until model loads; revealed by figure_maker.js -->
+          <button
+            class="viewer-fullscreen-btn hidden"
+            id="fmFullscreenBtn"
+            type="button"
+            title="Fullscreen (Ctrl+M)"
+            aria-label="Enter fullscreen"
+            aria-pressed="false"
+          >⛶</button>
+
           <!-- Error boundary fallback -->
           <div class="fm-viewer-error hidden" id="fmViewerError" role="alert">
             <span aria-hidden="true">⚠️</span>
@@ -243,6 +253,7 @@
   </main>
 
   <script src="shared_inputs.js"></script>
+  <script src="viewer_fullscreen.js"></script>
   <script type="module" src="figure_maker.js"></script>
 </body>
 </html>

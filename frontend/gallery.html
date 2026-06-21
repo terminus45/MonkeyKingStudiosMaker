@@ -141,7 +141,17 @@
         class="model-viewer-canvas"
         role="img"
         aria-label="Interactive 3D model — drag to rotate, scroll to zoom"
-      ></div>
+      >
+        <!-- Fullscreen toggle — hidden until model loads; revealed by gallery.js -->
+        <button
+          class="viewer-fullscreen-btn hidden"
+          id="modelViewerFullscreen"
+          type="button"
+          title="Fullscreen (Ctrl+M)"
+          aria-label="Enter fullscreen"
+          aria-pressed="false"
+        >⛶</button>
+      </div>
       <p class="model-viewer-hint" aria-hidden="true">Drag to rotate · Scroll to zoom</p>
       <div class="model-viewer-footer">
         <a
@@ -155,10 +165,11 @@
     </div>
   </div>
 
-  <!-- shared_inputs.js / storybook_print.js are plain (non-module) scripts so their globals
-       are available to the deferred gallery.js module -->
+  <!-- shared_inputs.js / storybook_print.js / viewer_fullscreen.js are plain (non-module)
+       scripts so their globals are available to the deferred gallery.js module -->
   <script src="shared_inputs.js"></script>
   <script src="storybook_print.js"></script>
+  <script src="viewer_fullscreen.js"></script>
   <script type="module" src="gallery.js"></script>
 </body>
 </html>

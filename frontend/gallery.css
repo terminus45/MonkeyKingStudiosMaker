@@ -388,6 +388,28 @@
   flex-shrink: 0;
 }
 
+/* ── Fullscreen / maximized state — Gallery modal viewer ── */
+/* When .model-viewer-content enters .viewer-maximized the modal chrome is
+   hidden, leaving only the canvas + hint + ⛶ exit button (IMMERSIVE). */
+.model-viewer-content.viewer-maximized {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+}
+/* IMMERSIVE: hide the header (title + close button) and footer (download) */
+.model-viewer-content.viewer-maximized .model-viewer-header,
+.model-viewer-content.viewer-maximized .model-viewer-footer { display: none !important; }
+/* The canvas grows to fill the remaining height */
+.model-viewer-content.viewer-maximized .model-viewer-canvas {
+  flex: 1;
+  min-height: 0;
+}
+/* The hint pill stays visible at the bottom */
+.model-viewer-content.viewer-maximized .model-viewer-hint {
+  border-top: none;
+}
+
 /* ── Responsive ── */
 @media (max-width: 600px) {
   .gallery-book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

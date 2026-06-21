@@ -170,7 +170,9 @@
   padding: 2rem;
   text-align: center;
   border-radius: calc(var(--radius) - 1px);
-  z-index: 3;
+  /* Raised from 3 → 5 so the error overlay covers the fullscreen button (z-index:4).
+     The button is hidden in error state anyway; this is belt-and-suspenders. */
+  z-index: 5;
 }
 .fm-viewer-error.hidden { display: none; }
 
@@ -224,6 +226,23 @@
   gap: .5rem;
   flex-wrap: wrap;
 }
+
+/* ── Fullscreen / maximized state — Figure Maker ── */
+/* When #fmViewerFrame enters .viewer-maximized the 50px side gutters and
+   the fixed viewer height are irrelevant — the frame fills the viewport. */
+#fmViewerFrame.viewer-maximized {
+  height: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+/* The #fmViewer div must fill the maximized frame */
+#fmViewerFrame.viewer-maximized #fmViewer {
+  flex: 1;
+  min-height: 0;
+}
+/* IMMERSIVE: hide print report card and download row when maximized.
+   The hint pill and the ⛶ exit button remain visible (they are inside the frame). */
+#fmViewerFrame.viewer-maximized ~ #fmReportCard { display: none !important; }
 
 /* ── Reduced-motion overrides ── */
 @media (prefers-reduced-motion: reduce) {

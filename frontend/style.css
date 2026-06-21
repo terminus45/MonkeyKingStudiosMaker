@@ -601,3 +601,64 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.45;
 }
 .inline-success.hidden { display: none; }
+
+/* ── Viewer fullscreen toggle button (shared by Figure Maker + Gallery) ── */
+/* Not .settings-btn — this is an absolute overlay control designed to sit
+   against the 3D canvas background, not in an in-flow row. */
+.viewer-fullscreen-btn {
+  position: absolute;
+  top: .6rem;
+  right: .6rem;
+  z-index: 6;   /* above hint (2), canvas, and the error overlay (5) so it's always findable */
+  /* High-contrast WHITE chip so it never camouflages against the dark 3D scene. */
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, .18);
+  border-radius: 8px;
+  padding: .45rem .55rem;
+  font-size: 1.2rem;
+  color: #0f1129;
+  cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
+  transition: color .15s, background .15s, border-color .15s, transform .1s;
+  line-height: 1;
+}
+.viewer-fullscreen-btn:hover {
+  color: #000000;
+  background: #f1f1f4;
+  border-color: rgba(0, 0, 0, .30);
+}
+.viewer-fullscreen-btn:active { transform: scale(.94); }
+.viewer-fullscreen-btn:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: 2px;
+}
+.viewer-fullscreen-btn.is-fullscreen {
+  background: #ffffff;
+  color: #0f1129;
+}
+
+/* ── Maximized state (CSS-overlay baseline — works on iPhone Safari) ──
+   position:fixed; inset:0 fills the viewport regardless of the page scroll
+   position. The native Fullscreen API is layered on top opportunistically
+   in viewer_fullscreen.js (best-effort, guarded by try/catch). */
+.viewer-maximized {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 200 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  background: #0a0b1a !important;
+  /* flex column so the canvas child can flex:1 and fill the available height */
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* ── Reduced-motion: suppress any transition on the toggle ── */
+@media (prefers-reduced-motion: reduce) {
+  .viewer-fullscreen-btn { transition: none; }
+}

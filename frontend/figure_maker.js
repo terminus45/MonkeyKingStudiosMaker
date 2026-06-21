@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const API = window.location.origin;
 
@@ -46,6 +47,7 @@ const fmFilamentTag        = document.getElementById('fmFilamentTag');
 const fmReportText         = document.getElementById('fmReportText');
 const fmDownloadStlBtn     = document.getElementById('fmDownloadStlBtn');
 const fmDownloadGlbBtn2    = document.getElementById('fmDownloadGlbBtn2');
+const fmFullscreenBtn      = document.getElementById('fmFullscreenBtn');
 
 // ── Bolt message map ─────────────────────────────────────────────────────────
 const BOLT_MESSAGES = {
@@ -80,6 +82,7 @@ let fmRenderer    = null;
 let fmAnimId      = null;
 let fmControls    = null;
 let fmRo          = null;
+let fmEnvMap      = null;
 let autoRotateTimer = null;
 
 // ── Health check ─────────────────────────────────────────────────────────────
@@ -420,12 +423,38 @@ fmResetBtn.addEventListener('click', () => {
   setBoltMessage('idleReset');
 });
 
+// Ctrl+M toggles the model viewer's fullscreen (only once a model is loaded →
+// the fullscreen button is visible). No-op otherwise so other Ctrl combos pass through.
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'm' || e.key === 'M')) {
+    if (fmFullscreenBtn.classList.contains('hidden')) return;
+    e.preventDefault();
+    fmFullscreenBtn.click();
+  }
+});
+
 // ── three.js viewer ───────────────────────────────────────────────────────────
+
+// Shared resize routine — called by the ResizeObserver and by the fullscreen toggle.
+// camera / renderer are passed in because they are created inside mountViewer's closure.
+function _applyFmResize(renderer, camera) {
+  if (!renderer) return;
+  const nw = fmViewer.clientWidth;
+  const nh = fmViewer.clientHeight;
+  renderer.setSize(nw, nh);
+  camera.aspect = nw / nh;
+  camera.updateProjectionMatrix();
+}
+
+// Cleanup function for the fullscreenchange listener (deregistered on teardown).
+let _fmFullscreenCleanup = null;
+
 function teardownViewer() {
   if (autoRotateTimer) { clearTimeout(autoRotateTimer); autoRotateTimer = null; }
   if (fmAnimId)        { cancelAnimationFrame(fmAnimId); fmAnimId = null; }
   if (fmRo)            { fmRo.disconnect(); fmRo = null; }
   if (fmControls)      { fmControls.dispose(); fmControls = null; }
+  if (fmEnvMap)        { fmEnvMap.dispose(); fmEnvMap = null; }
   if (fmRenderer)      { fmRenderer.dispose(); fmRenderer = null; }
   while (fmViewer.firstChild) fmViewer.removeChild(fmViewer.firstChild);
   fmViewerError.classList.add('hidden');
@@ -433,6 +462,13 @@ function teardownViewer() {
   // Drop the previous STL export — a new model will regenerate it.
   if (_stlObjectUrl) { URL.revokeObjectURL(_stlObjectUrl); _stlObjectUrl = null; }
   fmDownloadStlBtn.classList.add('hidden');
+
+  // Hide fullscreen button and exit fullscreen / drop maximized class if active.
+  fmFullscreenBtn.classList.add('hidden');
+  if (window.ViewerFullscreen && window.ViewerFullscreen.isMaximized(fmViewerFrame)) {
+    window.ViewerFullscreen.toggle(fmViewerFrame, { onResize: function () {} });
+  }
+  if (_fmFullscreenCleanup) { _fmFullscreenCleanup(); _fmFullscreenCleanup = null; }
 }
 
 function mountViewer(glbUrl) {
@@ -446,6 +482,8 @@ function mountViewer(glbUrl) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(w, h);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
 
   const canvas = renderer.domElement;
   canvas.setAttribute('aria-hidden', 'true');
@@ -455,6 +493,14 @@ function mountViewer(glbUrl) {
   const scene  = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 1000);
   camera.position.set(0, 0, 3);
+
+  // Image-based lighting: a procedural studio "room" so PBR (metal/rough) materials
+  // pick up reflections and read as bright as Meshy's studio-lit thumbnail, instead
+  // of looking dark/flat under the direct lights alone.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  fmEnvMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = fmEnvMap;
+  pmrem.dispose();
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -515,6 +561,9 @@ function mountViewer(glbUrl) {
           console.error('STL export failed', e);
           fmDownloadStlBtn.classList.add('hidden');
         }
+
+        // Reveal the fullscreen button now that a model is confirmed loaded.
+        fmFullscreenBtn.classList.remove('hidden');
       },
       undefined,
       err => {
@@ -528,17 +577,42 @@ function mountViewer(glbUrl) {
     fmViewerError.classList.remove('hidden');
   }
 
-  // ResizeObserver
-  const ro = new ResizeObserver(() => {
-    if (!fmRenderer) return;
-    const nw = container.clientWidth;
-    const nh = container.clientHeight;
-    fmRenderer.setSize(nw, nh);
-    camera.aspect = nw / nh;
-    camera.updateProjectionMatrix();
-  });
+  // ResizeObserver — uses the shared _applyFmResize routine.
+  const ro = new ResizeObserver(() => { _applyFmResize(fmRenderer, camera); });
   ro.observe(container);
   fmRo = ro;
+
+  // Wire the fullscreen button (ViewerFullscreen is the non-module global from viewer_fullscreen.js).
+  if (window.ViewerFullscreen) {
+    // Button click handler — wired once per mountViewer call (previous listener
+    // is implicitly dropped when the DOM button reference is the same element,
+    // so we use a named var and replace it each time).
+    const _fmFsOnClick = () => {
+      window.ViewerFullscreen.toggle(fmViewerFrame, {
+        onResize: () => _applyFmResize(fmRenderer, camera),
+      });
+      _syncFmFullscreenBtn(window.ViewerFullscreen.isMaximized(fmViewerFrame));
+    };
+    fmFullscreenBtn.onclick = _fmFsOnClick;
+
+    // Sync button ARIA state helper.
+    function _syncFmFullscreenBtn(maximized) {
+      fmFullscreenBtn.setAttribute('aria-pressed', maximized ? 'true' : 'false');
+      fmFullscreenBtn.setAttribute('aria-label', maximized ? 'Exit fullscreen' : 'Enter fullscreen');
+      fmFullscreenBtn.classList.toggle('is-fullscreen', maximized);
+    }
+
+    // Register fullscreenchange listener to sync state when user exits via OS/Esc.
+    if (_fmFullscreenCleanup) _fmFullscreenCleanup();
+    _fmFullscreenCleanup = window.ViewerFullscreen.onFullscreenChange(fmViewerFrame, (maximized) => {
+      _syncFmFullscreenBtn(maximized);
+      // Also call onResize so the renderer re-fits after the layout change.
+      _applyFmResize(fmRenderer, camera);
+    });
+
+    // Ensure button starts in the correct state.
+    _syncFmFullscreenBtn(window.ViewerFullscreen.isMaximized(fmViewerFrame));
+  }
 
   function animate() {
     fmAnimId = requestAnimationFrame(animate);
