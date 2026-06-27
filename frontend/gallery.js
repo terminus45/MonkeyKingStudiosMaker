@@ -4,17 +4,19 @@
 let _three = null;
 async function loadThree() {
   if (_three) return _three;
-  const [THREE, gltf, orbit, roomEnv] = await Promise.all([
+  const [THREE, gltf, orbit, roomEnv, stl] = await Promise.all([
     import('three'),
     import('three/addons/loaders/GLTFLoader.js'),
     import('three/addons/controls/OrbitControls.js'),
     import('three/addons/environments/RoomEnvironment.js'),
+    import('three/addons/exporters/STLExporter.js'),
   ]);
   _three = {
     THREE,
     GLTFLoader: gltf.GLTFLoader,
     OrbitControls: orbit.OrbitControls,
     RoomEnvironment: roomEnv.RoomEnvironment,
+    STLExporter: stl.STLExporter,
   };
   return _three;
 }
@@ -44,6 +46,7 @@ const modelViewerClose      = document.getElementById('modelViewerClose');
 const modelViewerTitle      = document.getElementById('modelViewerTitle');
 const modelViewerCanvas     = document.getElementById('modelViewerCanvas');
 const modelViewerDownload   = document.getElementById('modelViewerDownload');
+const modelViewerStl        = document.getElementById('modelViewerStl');
 const modelViewerFullscreen = document.getElementById('modelViewerFullscreen');
 
 // The .model-viewer-content div is the MAXIMIZED element (wraps header + canvas + footer).
@@ -60,6 +63,7 @@ let modalAnimId      = null;
 let modalControls    = null;
 let modalRo          = null;
 let modalEnvMap      = null;
+let _modalStlUrl     = null;   // blob URL for the client-side STL export (revoked on teardown)
 let autoRotateTimer  = null;
 let _modalFsCleanup  = null;   // cleanup fn returned by ViewerFullscreen.onFullscreenChange
 
@@ -407,6 +411,11 @@ function buildModelCard(model) {
         style="text-decoration:none;"
       >↓ GLB</a>
       <button
+        class="book-action-btn"
+        data-action="stl"
+        aria-label="Download STL file for 3D printing"
+      >↓ STL</button>
+      <button
         class="book-action-btn danger"
         data-action="delete-model"
         aria-label="Delete this 3D model"
@@ -416,9 +425,42 @@ function buildModelCard(model) {
 
   const viewBtn = card.querySelector('[data-action="view-model"]');
   viewBtn.addEventListener('click', () => openModelViewer(glbUrl, promptText, viewBtn));
+  card.querySelector('[data-action="stl"]').addEventListener('click', e =>
+    downloadModelStl(glbUrl, model.glb_filename, e.currentTarget));
   card.querySelector('[data-action="delete-model"]').addEventListener('click', e => deleteModel(e, model.id, card));
 
   return card;
+}
+
+// Download an STL for a gallery model WITHOUT opening the viewer: load the GLB
+// headlessly (three.js + GLTFLoader), export STL client-side (no server round-trip,
+// no stored file — the GLB is the source of truth), and trigger a download.
+async function downloadModelStl(glbUrl, glbFilename, btn) {
+  if (!glbUrl || glbUrl === '#') return;
+  const orig = btn.textContent;
+  btn.textContent = '…';
+  btn.setAttribute('aria-disabled', 'true');
+  let url = null;
+  try {
+    const { GLTFLoader, STLExporter } = await loadThree();
+    const gltf = await new GLTFLoader().loadAsync(glbUrl);
+    const stlData = new STLExporter().parse(gltf.scene, { binary: true });
+    const blob = new Blob([stlData], { type: 'model/stl' });
+    url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (glbFilename || 'model.glb').replace(/\.glb$/i, '.stl');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (err) {
+    console.error('STL export failed', err);
+    alert('Could not prepare the STL (the 3D viewer failed to load). Try opening "View 3D" instead.');
+  } finally {
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 10000);
+    btn.textContent = orig;
+    btn.removeAttribute('aria-disabled');
+  }
 }
 
 async function deleteModel(e, modelId, card) {
@@ -480,6 +522,10 @@ function teardownModalViewer() {
   // Hide the fullscreen button and deregister the fullscreenchange listener.
   modelViewerFullscreen.classList.add('hidden');
   if (_modalFsCleanup) { _modalFsCleanup(); _modalFsCleanup = null; }
+
+  // Drop the client-side STL export — it's regenerated when the next model loads.
+  if (_modalStlUrl) { URL.revokeObjectURL(_modalStlUrl); _modalStlUrl = null; }
+  modelViewerStl.classList.add('hidden');
 }
 
 // Clear the canvas's dynamic children (loading text / old renderer canvas) while
@@ -503,12 +549,12 @@ async function mountModalViewer(glbUrl) {
 
   // Load three.js on demand. If the CDN is unreachable, fall back gracefully —
   // the user can still download the GLB from the modal footer.
-  let THREE, GLTFLoader, OrbitControls, RoomEnvironment;
+  let THREE, GLTFLoader, OrbitControls, RoomEnvironment, STLExporter;
   // NOTE: do NOT use container.textContent to set/clear — the fullscreen button is
   // a static child of this container and textContent would delete it permanently.
   _setModalCanvasMsg('Loading 3D viewer…');
   try {
-    ({ THREE, GLTFLoader, OrbitControls, RoomEnvironment } = await loadThree());
+    ({ THREE, GLTFLoader, OrbitControls, RoomEnvironment, STLExporter } = await loadThree());
   } catch (err) {
     console.error('Failed to load three.js', err);
     _setModalCanvasMsg('Could not load the 3D viewer (are you offline?). You can still download the GLB below.');
@@ -588,6 +634,21 @@ async function mountModalViewer(glbUrl) {
       controls.target.set(0, 0, 0);
       controls.update();
 
+      // Export an STL from the loaded GLB (client-side, like Figure Maker) so the
+      // model can be downloaded for 3D printing straight from the Gallery.
+      try {
+        const stlData = new STLExporter().parse(model, { binary: true });
+        const blob    = new Blob([stlData], { type: 'model/stl' });
+        if (_modalStlUrl) URL.revokeObjectURL(_modalStlUrl);
+        _modalStlUrl = URL.createObjectURL(blob);
+        modelViewerStl.href = _modalStlUrl;
+        modelViewerStl.download = (modelViewerDownload.download || 'model.glb').replace(/\.glb$/i, '.stl');
+        modelViewerStl.classList.remove('hidden');
+      } catch (e) {
+        console.error('STL export failed', e);
+        modelViewerStl.classList.add('hidden');
+      }
+
       // Reveal the fullscreen button now that a model is confirmed loaded.
       modelViewerFullscreen.classList.remove('hidden');
 
@@ -659,6 +720,9 @@ document.addEventListener('keydown', e => {
   // Focus trap — includes the fullscreen button when it is visible
   if (e.key === 'Tab') {
     const focusable = [modelViewerClose, modelViewerDownload];
+    if (!modelViewerStl.classList.contains('hidden')) {
+      focusable.push(modelViewerStl);
+    }
     if (!modelViewerFullscreen.classList.contains('hidden')) {
       focusable.push(modelViewerFullscreen);
     }
