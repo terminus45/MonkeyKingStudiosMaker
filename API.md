@@ -30,6 +30,7 @@ If none resolves, the endpoint returns **503** with a `detail` naming the missin
 | Book Generator (`/decompose`, `/recheck-readings`) | Anthropic |
 | Book PDF (`/book-pdf*`) | Anthropic (prompt mode / recheck) + Gemini (any page not reused) — either or both may be skippable depending on the request (see below) |
 | 3D Figure Maker (`/figure/*`) | Meshy (required) + Anthropic (optional, for the print report) |
+| Practice Sheet — cloud (`/practice-sheet`) | Anthropic (runs the code-execution sandbox). The local variant `/practice-sheet/local` needs no key. |
 
 ---
 
@@ -365,6 +366,73 @@ curl -s -o figure.glb http://127.0.0.1:8000/figure/model/$JOB.glb
 
 ---
 
+# 5. Practice Sheet (Chinese only)
+
+Generates a printable **田字格 (tián zì gé) handwriting-practice PDF** for a Chinese storybook — up to 8 characters drawn from the story, each with pinyin and practice grid boxes. **Asynchronous** — start a job, poll, download. **Chinese-only** (`language` must be `zh`; anything else is `400`).
+
+The PDF is produced by **Claude Opus in Anthropic's code-execution sandbox** (ReportLab + the WQY ZenHei CJK font run server-side inside the sandbox; the app itself has no ReportLab dependency for this path). Because a real Claude run drives it, it needs an Anthropic key and takes noticeably longer than a normal request (the model runs code and self-verifies the PDF across up to 6 tool turns / ~150 s).
+
+> There is also a **synchronous, in-process** variant, `POST /practice-sheet/local`, that renders the same style of sheet with local ReportLab and **no Claude call** — see [Shared / utility endpoints](#shared--utility-endpoints). This section documents the cloud (Claude) path.
+
+## `POST /practice-sheet`
+
+**Request body** (`PracticeSheetRequest`):
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `book_title_en` | string | **required** | Book title in English (used for the sheet header + the download filename slug). |
+| `book_title_zh` | string | **required** | Book title in Chinese. |
+| `book_title_pinyin` | string | **required** | Pinyin for the Chinese title. |
+| `zh_text` | string | **required** | The story's Chinese text (join the pages' `zh` fields). Claude selects up to 8 characters to practice from this. |
+| `language` | string | `"zh"` | Must be `zh` — any other value is `400`. |
+| `anthropic_key` | string \| null | `null` | Per-request Anthropic key override. |
+
+Returns `{"job_id": "<32-hex>"}`. **Errors:** `400` (non-Chinese `language`), `503` (Anthropic key missing).
+
+## `GET /practice-sheet/status/{job_id}`
+
+`job_id` must be 32-hex (`400` otherwise); unknown id → `404`. Returns the job record. Poll until `stage` is `done` or `error`.
+
+```json
+{
+  "job_id": "…",
+  "stage": "executing",
+  "error": null,
+  "pdf_filename": null,
+  "title_en": "The Monkey King's First Friend"
+}
+```
+
+**Stages** (in order): `prompting` → `executing` → `done`. Terminal states: **`done`** (`pdf_filename` set) and **`error`** (with an `error` message; API failures surface as `"Anthropic API error: …"`). Unlike the figure/book-pdf jobs there is no numeric `progress` field.
+
+## `GET /practice-sheet/download/{job_id}`
+
+32-hex `job_id` guard (`400`); unknown id → `404`; **`409`** if the job isn't `done` yet; `404` if the PDF is missing on disk. On success serves the PDF as **`application/pdf`** with a `Content-Disposition` filename of `{english-title-slug}_practice.pdf`.
+
+**Example:**
+
+```bash
+# 1. start (needs the story's Chinese title + text)
+JOB=$(curl -s http://127.0.0.1:8000/practice-sheet \
+  -H 'Content-Type: application/json' \
+  -d '{"book_title_en":"The Monkey King","book_title_zh":"美猴王","book_title_pinyin":"měi hóu wáng","zh_text":"从前有一只猴子。他很聪明。"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["job_id"])')
+
+# 2. poll (this one is slow — the sandbox runs code + verifies the PDF)
+while :; do
+  S=$(curl -s http://127.0.0.1:8000/practice-sheet/status/$JOB)
+  echo "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin)["stage"])'
+  echo "$S" | grep -q '"stage": "done"'  && break
+  echo "$S" | grep -q '"stage": "error"' && { echo "$S"; exit 1; }
+  sleep 3
+done
+
+# 3. download the PDF
+curl -s -o practice.pdf http://127.0.0.1:8000/practice-sheet/download/$JOB
+```
+
+---
+
 # Shared / utility endpoints
 
 | Method + path | Purpose |
@@ -372,6 +440,7 @@ curl -s -o figure.glb http://127.0.0.1:8000/figure/model/$JOB.glb
 | `GET /health` | Liveness check. |
 | `GET /image/{filename}` | Serve a generated PNG (GET + HEAD). Filename is `[a-f0-9]{32}.png`. Resolves `output/images/` first, then `output/`. |
 | `POST /upload-image` | Multipart (`file`) upload; re-encoded through Pillow to a `[a-f0-9]{32}.png` in `output/images/`; returns `{"filename"}`. Same filename form as `/generate`, so uploaded images are usable by `/figure/generate-from-image`. |
+| `POST /practice-sheet/local` | **Synchronous** Chinese-only practice sheet — in-process ReportLab, **no Claude call**, returns the PDF directly as `application/pdf`. Body: `{ language, book_title_zh, book_title_en, pages: PageData[] }` (rejects non-`zh` with `400`; `400` if no Chinese characters found). The local counterpart to the async `POST /practice-sheet`. |
 | `GET /settings/keys` | Masked status of the three managed keys (never returns raw values). |
 | `POST /settings/keys` | Set/clear keys in the server store (`config.json`). Body: any of `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `MESHY_API_KEY`. |
 
@@ -393,3 +462,4 @@ Common codes across the API: **`400`** invalid/insufficient input, **`404`** unk
 - **A printable PDF from an already-built book:** `POST /book-pdf` with `mode="existing"` + the `story` and `generated_images` you already have (e.g. from the storybook flow above) → poll → download. Reuses every image already on disk; the cheapest path through the endpoint.
 - **A 3D figure from an image:** `POST /generate` (get a `[a-f0-9]{32}.png`) → `POST /figure/generate-from-image` with that filename → poll `GET /figure/status/{job_id}` → `GET /figure/model/{job_id}.glb`.
 - **A 3D figure from text:** `POST /figure/generate` → poll → `GET /figure/model/{job_id}.glb`.
+- **A Chinese handwriting-practice PDF:** `POST /practice-sheet` with the book's Chinese title + `zh_text` → poll `GET /practice-sheet/status/{job_id}` → `GET /practice-sheet/download/{job_id}`. For an instant, no-Claude version, `POST /practice-sheet/local` returns the PDF synchronously.
