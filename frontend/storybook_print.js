@@ -225,14 +225,18 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   .book { max-width: 900px; margin: 0 auto; }
 
   .cover {
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;          /* exactly one page — never spill a sliver onto a 2nd printed page */
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     background: #fff;
-    padding: 3rem 2rem; text-align: center;
+    padding: 2.5rem 2rem; text-align: center;
     border-bottom: 2px solid #000;
   }
-  .cover-img { max-width: 480px; width: 100%; border-radius: 4px; margin-bottom: 2rem; }
+  /* Cap the image height so the image + title + reading + English line always fit
+     within one (landscape A4 ≈ 210mm tall) page instead of pushing onto a 2nd. */
+  .cover-img { max-width: 480px; max-height: 50vh; width: auto; height: auto;
+    object-fit: contain; border-radius: 4px; margin-bottom: 1.5rem; }
   .cover-title-native { font-size: 4rem; color: #000; letter-spacing: .1em;
     font-family: ${lang.font_stack}; }
   /* Cover title with per-character ruby alignment.
