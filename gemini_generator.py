@@ -6,13 +6,17 @@ from typing import Optional
 
 from PIL import Image
 
-from config import OUTPUT_DIR
+from config import IMAGES_DIR
 
 
 def save_image(image: Image.Image, filename: str) -> str:
-    """Save a PIL Image to OUTPUT_DIR. Returns the full path."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    path = os.path.join(OUTPUT_DIR, filename)
+    """Save a PIL Image to IMAGES_DIR. Returns the full path.
+
+    (Reads resolve from IMAGES_DIR with a fallback to OUTPUT_DIR, so images
+    written here are found everywhere the app serves or reuses them.)
+    """
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    path = os.path.join(IMAGES_DIR, filename)
     image.save(path)
     return path
 

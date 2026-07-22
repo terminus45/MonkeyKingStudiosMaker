@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import anthropic
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
@@ -20,11 +20,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import (
+    BOOK_PDF_DIR,
     FIGURES_DIR,
+    IMAGES_DIR,
     OUTPUT_DIR,
     PRACTICE_DIR,
     SAFETY_STYLE_SUFFIX,
 )
+import book_pdf
 import gemini_generator
 import meshy_generator
 import practice_sheet as practice_sheet_mod
@@ -40,8 +43,10 @@ settings_store.load()
 async def lifespan(app: FastAPI):
     # Ensure output directories exist
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(IMAGES_DIR, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
     os.makedirs(PRACTICE_DIR, exist_ok=True)
+    os.makedirs(BOOK_PDF_DIR, exist_ok=True)
     yield
 
 
@@ -339,26 +344,27 @@ def _decompose_tool(
     }
 
 
-@app.post("/decompose", response_model=DecomposeResponse)
-def decompose(req: DecomposeRequest):
-    api_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
-
-    if not (req.concept or "").strip() and not (req.character or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Provide a Character Description or a Story Prompt.",
-        )
-
-    lang = languages.get(req.language)
+def run_decompose(
+    concept: Optional[str],
+    style_suffix: Optional[str],
+    character: Optional[str],
+    language: Optional[str],
+    page_count: Optional[int],
+    api_key: str,
+) -> dict:
+    """Core /decompose pipeline (Claude call + forced-tool schema). Extracted
+    from decompose() (behavior-preserving) so the /book-pdf worker can reuse
+    it without going through the HTTP layer. Everything here runs AFTER the
+    caller has already resolved the API key and validated concept/character
+    aren't both empty."""
+    lang = languages.get(language)
     # Clamp page_count to the allowed set early — must be defined before invention
     # instruction and tool build reference it.
-    page_count = req.page_count if req.page_count in (11, 15, 19) else 11
+    page_count = page_count if page_count in (11, 15, 19) else 11
     client = anthropic.Anthropic(api_key=api_key)
 
-    concept_text = (req.concept or "").strip()
-    character_text = (req.character or "").strip()
+    concept_text = (concept or "").strip()
+    character_text = (character or "").strip()
 
     if concept_text:
         # Concept provided — use it directly as the story seed
@@ -378,7 +384,7 @@ def decompose(req: DecomposeRequest):
             "CONSISTENTLY (same appearance, outfit, colors) in every image_prompt, "
             "using visual description only — never the character's name."
         )
-    safe_style = _safe_style(req.style_suffix)
+    safe_style = _safe_style(style_suffix)
     user_content += f"\n\nApply this visual style to every image_prompt: {safe_style}"
     # Unconditional count instruction — applies to both the concept and character-only paths.
     user_content += f"\n\nDecompose this into exactly {page_count} pages, numbered 1 to {page_count}."
@@ -433,6 +439,28 @@ def decompose(req: DecomposeRequest):
     return data
 
 
+@app.post("/decompose", response_model=DecomposeResponse)
+def decompose(req: DecomposeRequest):
+    api_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
+
+    if not (req.concept or "").strip() and not (req.character or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Provide a Character Description or a Story Prompt.",
+        )
+
+    return run_decompose(
+        concept=req.concept,
+        style_suffix=req.style_suffix,
+        character=req.character,
+        language=req.language,
+        page_count=req.page_count,
+        api_key=api_key,
+    )
+
+
 # ── Re-check readings ──────────────────────────────────────────────────────
 
 class RecheckRequest(BaseModel):
@@ -445,48 +473,64 @@ class RecheckRequest(BaseModel):
     book_title_characters: Optional[list[CharData]] = None
 
 
-@app.post("/recheck-readings")
-def recheck_readings(req: RecheckRequest):
-    """Re-run Claude over an existing story to correct tone marks / romanization
-    and re-align characters[].  Returns the same page array (native, reading,
-    characters, en) with corrections applied.  image_prompt is NOT returned —
-    the frontend preserves the existing value client-side."""
-    api_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
+def run_recheck(
+    language: Optional[str],
+    pages: list,
+    api_key: str,
+    book_title_native: Optional[str] = None,
+    book_title_reading: Optional[str] = None,
+    book_title_characters: Optional[list] = None,
+) -> dict:
+    """Core /recheck-readings pipeline. Extracted from recheck_readings()
+    (behavior-preserving) so the /book-pdf worker can reuse it directly.
 
-    lang = languages.get(req.language)
+    `pages` accepts either PageData pydantic instances (as the HTTP route
+    receives them) or plain dicts (as the /book-pdf worker holds them,
+    straight out of run_decompose's Claude response) — each entry is
+    normalized via model_dump()/dict() before use. Same for the entries of
+    each page's `characters` list and of `book_title_characters`.
+    """
+    lang = languages.get(language)
     client = anthropic.Anthropic(api_key=api_key)
 
-    n = len(req.pages)
+    n = len(pages)
     tool = _decompose_tool(lang, min_pages=n, max_pages=n, include_image_prompt=False)
+
+    def _as_dict(obj):
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump()
+        return dict(obj)
 
     # Build a lean user message: strip image_prompt to save output tokens.
     native_f  = lang["native_field"]
     reading_f = lang["reading_field"]
     stripped_pages = []
-    for pg in req.pages:
+    for pg in pages:
+        pg_d = _as_dict(pg)
         entry: dict = {
-            "page": pg.page,
-            native_f:  getattr(pg, native_f)  or "",
-            reading_f: getattr(pg, reading_f) or "",
-            "en": pg.en,
+            "page": pg_d["page"],
+            native_f:  pg_d.get(native_f)  or "",
+            reading_f: pg_d.get(reading_f) or "",
+            "en": pg_d["en"],
         }
-        if pg.characters:
-            entry["characters"] = [{"c": ch.c, "p": ch.p} for ch in pg.characters]
+        chars = pg_d.get("characters")
+        if chars:
+            entry["characters"] = [
+                {"c": _as_dict(ch)["c"], "p": _as_dict(ch)["p"]} for ch in chars
+            ]
         stripped_pages.append(entry)
 
     # Build the payload — inject title when present (B3: omit entirely if title is blank)
     payload: dict = {"pages": stripped_pages}
-    if req.book_title_native and req.book_title_native.strip():
+    if book_title_native and book_title_native.strip():
         title_native_f  = lang["title_native_field"]
         title_reading_f = lang["title_reading_field"]
         title_obj: dict = {
-            title_native_f:  req.book_title_native,
-            title_reading_f: req.book_title_reading or "",
+            title_native_f:  book_title_native,
+            title_reading_f: book_title_reading or "",
             "book_title_characters": (
-                [c.model_dump() for c in req.book_title_characters]
-                if req.book_title_characters else []
+                [_as_dict(c) for c in book_title_characters]
+                if book_title_characters else []
             ),
         }
         payload["book_title"] = title_obj
@@ -547,15 +591,50 @@ def recheck_readings(req: RecheckRequest):
     return data
 
 
+@app.post("/recheck-readings")
+def recheck_readings(req: RecheckRequest):
+    """Re-run Claude over an existing story to correct tone marks / romanization
+    and re-align characters[].  Returns the same page array (native, reading,
+    characters, en) with corrections applied.  image_prompt is NOT returned —
+    the frontend preserves the existing value client-side."""
+    api_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
+
+    return run_recheck(
+        language=req.language,
+        pages=req.pages,
+        api_key=api_key,
+        book_title_native=req.book_title_native,
+        book_title_reading=req.book_title_reading,
+        book_title_characters=req.book_title_characters,
+    )
+
+
 # Accept HEAD as well as GET — the Book Builder restore flow probes each saved
 # page image with a HEAD request before displaying it. (Starlette no longer
 # auto-adds HEAD to GET routes, so it must be declared explicitly.)
+def _resolve_image_path(filename: str) -> Optional[str]:
+    """Return the on-disk path of an image, or None if it isn't found.
+
+    Generated/uploaded images now live in IMAGES_DIR; older images and any
+    recovered originals live at the top level of OUTPUT_DIR. Callers pass a
+    filename that has already been validated against the [a-f0-9]{32}.png
+    allow-list, so joining either directory is traversal-safe.
+    """
+    for base in (IMAGES_DIR, OUTPUT_DIR):
+        path = os.path.join(base, filename)
+        if os.path.exists(path):
+            return path
+    return None
+
+
 @app.api_route("/image/{filename}", methods=["GET", "HEAD"])
 def get_image(filename: str):
     if not re.fullmatch(r"[a-f0-9]{32}\.png", filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(path):
+    path = _resolve_image_path(filename)
+    if path is None:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path, media_type="image/png")
 
@@ -571,8 +650,8 @@ async def upload_image(file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(status_code=400, detail="Uploaded file is not a valid image.")
     filename = f"{uuid.uuid4().hex}.png"
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    img.save(os.path.join(OUTPUT_DIR, filename))
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    img.save(os.path.join(IMAGES_DIR, filename))
     return {"filename": filename}
 
 
@@ -733,8 +812,7 @@ def gallery_image_add(req: GalleryImageRequest):
     """Register a generated image in the images manifest."""
     if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
         raise HTTPException(status_code=400, detail="Invalid filename format.")
-    img_path = os.path.join(OUTPUT_DIR, req.filename)
-    if not os.path.exists(img_path):
+    if _resolve_image_path(req.filename) is None:
         raise HTTPException(status_code=400, detail="Image file not found in output directory.")
     record = {
         "id": uuid.uuid4().hex[:8],
@@ -1117,7 +1195,9 @@ def _run_figure_image_job(job_id: str, filename: str, prompt: str,
 
         # Read and re-encode the portrait with Pillow (resize, JPEG, base64).
         # This keeps the upload payload small and strips any EXIF / alpha channel.
-        img_path = os.path.join(OUTPUT_DIR, filename)
+        img_path = _resolve_image_path(filename)
+        if img_path is None:
+            raise RuntimeError("Portrait image file not found.")
         with PilImage.open(img_path) as img:
             img = img.convert("RGB")
             img.thumbnail((1024, 1024))
@@ -1238,8 +1318,7 @@ def figure_generate_from_image(req: FigureFromImageRequest):
     if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
         raise HTTPException(status_code=400, detail="Invalid filename format.")
 
-    img_path = os.path.join(OUTPUT_DIR, req.filename)
-    if not os.path.exists(img_path):
+    if _resolve_image_path(req.filename) is None:
         raise HTTPException(status_code=404, detail="Couldn't find that portrait.")
 
     resolved_meshy_key = req.meshy_key or settings_store.get_key("MESHY_API_KEY")
@@ -1470,6 +1549,392 @@ def practice_sheet_local(req: LocalPracticeRequest):
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{slug}_practice.pdf"'},
+    )
+
+
+# ── Book PDF (prompt/existing → printable PDF) ────────────────────────────────
+# Async job pattern mirrors the Figure Maker / Practice Sheet job stores. Runs
+# the full storybook pipeline (decompose → readings check → per-page image
+# generation → HTML render → PDF via headless Chromium → Chinese practice-sheet
+# append → merge) and hands back one downloadable PDF. See
+# design-specs/book-pdf-endpoint.md for the full design rationale.
+
+_book_pdf_jobs: dict[str, dict] = {}
+_book_pdf_jobs_lock = threading.Lock()
+
+# Bounds concurrent book-pdf jobs — the most expensive endpoint in the app
+# (up to 2 opus calls + up to 19 Gemini image calls per job, no confirmation
+# gate). Not a substitute for real rate limiting/auth (tracked in
+# design-specs/security-architecture-backlog.md); just a interim guardrail so
+# a burst of requests can't pile up unboundedly many daemon worker threads.
+_BOOK_PDF_SEM = threading.BoundedSemaphore(2)
+
+
+def _book_pdf_job_create(job_id: str) -> dict:
+    record = {
+        "job_id": job_id,
+        "stage": "decomposing",
+        "progress": 0,
+        "current_page": None,
+        "total_pages": None,
+        "pages_generated": 0,
+        "pages_reused": 0,
+        "practice_sheet_included": None,
+        "book_title_en": None,
+        "pdf_filename": None,
+        "error": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with _book_pdf_jobs_lock:
+        _book_pdf_jobs[job_id] = record
+    return record
+
+
+def _book_pdf_job_update(job_id: str, patch: dict) -> None:
+    with _book_pdf_jobs_lock:
+        if job_id in _book_pdf_jobs:
+            _book_pdf_jobs[job_id].update(patch)
+
+
+def _book_pdf_job_read(job_id: str) -> Optional[dict]:
+    with _book_pdf_jobs_lock:
+        rec = _book_pdf_jobs.get(job_id)
+        return dict(rec) if rec else None
+
+
+class BookPDFRequest(BaseModel):
+    mode: Literal["prompt", "existing"] = "prompt"
+    # prompt-mode fields
+    concept: Optional[str] = ""
+    character: Optional[str] = ""
+    style_suffix: Optional[str] = ""
+    language: Optional[str] = "zh"
+    page_count: Optional[int] = 11
+    # existing-mode fields
+    story: Optional[dict] = None
+    generated_images: Optional[dict[str, str]] = None
+    # both modes
+    recheck_readings: Optional[bool] = None
+    anthropic_key: Optional[str] = None
+    gemini_key: Optional[str] = None
+    gemini_model: Optional[str] = "imagen-4.0-fast-generate-001"
+
+
+def _resolve_book_pdf_recheck(mode: str, recheck_readings: Optional[bool]) -> bool:
+    """recheck_readings=None resolves per-mode: locked True (non-overridable)
+    for mode="prompt", default False (overridable) for mode="existing"."""
+    if mode == "prompt":
+        return True
+    return recheck_readings if recheck_readings is not None else False
+
+
+def _book_pdf_needs_gemini(page_numbers: list, generated_images: dict) -> bool:
+    """True if at least one of page_numbers lacks a reusable image on disk."""
+    generated_images = generated_images or {}
+    for pnum in page_numbers:
+        fname = generated_images.get(str(pnum)) or generated_images.get(pnum)
+        if not (fname and _resolve_image_path(fname)):
+            return True
+    return False
+
+
+def _overlay_recheck_onto_story(story: dict, recheck_data: dict, lang: dict) -> None:
+    """Overlay corrected native text / reading / en / characters[] from a
+    /recheck-readings-shaped response onto `story`'s pages IN PLACE, matched
+    by page number — mirrors book_builder.js's client-side applyCheckReadings
+    merge. Each page's `image_prompt` (absent from recheck_data) and the
+    story's own title fields are preserved untouched; only
+    book_title_characters is overlaid, same as the client."""
+    native_f  = lang["native_field"]
+    reading_f = lang["reading_field"]
+    returned_by_page = {rp.get("page"): rp for rp in (recheck_data.get("pages") or [])}
+    for pg in story.get("pages", []):
+        rp = returned_by_page.get(pg.get("page"))
+        if not rp:
+            continue
+        pg[native_f]  = rp.get(native_f, pg.get(native_f))
+        pg[reading_f] = rp.get(reading_f, pg.get(reading_f))
+        pg["en"] = rp.get("en", pg.get("en"))
+        if rp.get("characters"):
+            pg["characters"] = rp["characters"]
+        # image_prompt intentionally left untouched — recheck_data never carries it.
+    if recheck_data.get("book_title_characters"):
+        story["book_title_characters"] = recheck_data["book_title_characters"]
+
+
+def _generate_book_pdf_page_image(pg: dict, gemini_model: str, style_suffix: str, gemini_key: str) -> str:
+    """Generate one page's illustration via Gemini, one retry on failure.
+    Raises RuntimeError naming the page on repeated failure — this endpoint's
+    contract is a finished, printable PDF, so a caller polling to `done`
+    should never discover a silently-blank page (see design-specs/
+    book-pdf-endpoint.md Section 6)."""
+    prompt = pg.get("image_prompt") or ""
+    last_err: Optional[Exception] = None
+    for _attempt in range(2):
+        try:
+            image = gemini_generator.generate(
+                content_prompt=prompt,
+                style_prompt=style_suffix,
+                negative_prompt="",
+                model_id=gemini_model,
+                aspect_ratio=None,
+                width=1024,
+                height=1024,
+                api_key=gemini_key,
+            )
+            filename = f"{uuid.uuid4().hex}.png"
+            gemini_generator.save_image(image, filename)
+            return filename
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Image generation failed for page {pg.get('page')}: {last_err}")
+
+
+def _run_book_pdf_job(job_id: str, req_data: dict, anthropic_key: Optional[str], gemini_key: Optional[str]) -> None:
+    """Background worker: prompt/existing → decompose → readings check →
+    per-page illustration → HTML render → PDF → practice-sheet merge.
+    Stage/progress bands mirror design-specs/book-pdf-endpoint.md Section 1."""
+    try:
+        mode = req_data.get("mode", "prompt")
+        language = req_data.get("language") or languages.DEFAULT_LANGUAGE
+        lang = languages.get(language)
+
+        # ── decomposing (0-8) — skipped (jumps straight through) for mode="existing" ──
+        _book_pdf_job_update(job_id, {"stage": "decomposing", "progress": 0})
+        if mode == "prompt":
+            story = run_decompose(
+                concept=req_data.get("concept") or "",
+                style_suffix=req_data.get("style_suffix") or "",
+                character=req_data.get("character") or "",
+                language=language,
+                page_count=req_data.get("page_count") or 11,
+                api_key=anthropic_key,
+            )
+        else:
+            story = dict(req_data.get("story") or {})
+            story.setdefault("language", language)
+        _book_pdf_job_update(job_id, {"progress": 8, "book_title_en": story.get("book_title_en")})
+
+        # ── checking-readings (8-18) ──
+        recheck = _resolve_book_pdf_recheck(mode, req_data.get("recheck_readings"))
+        _book_pdf_job_update(job_id, {"stage": "checking-readings", "progress": 8})
+        if recheck:
+            title_native_f  = lang["title_native_field"]
+            title_reading_f = lang["title_reading_field"]
+            recheck_data = run_recheck(
+                language=language,
+                pages=story.get("pages", []),
+                api_key=anthropic_key,
+                book_title_native=story.get(title_native_f),
+                book_title_reading=story.get(title_reading_f),
+                book_title_characters=story.get("book_title_characters"),
+            )
+            _overlay_recheck_onto_story(story, recheck_data, lang)
+        _book_pdf_job_update(job_id, {"progress": 18})
+
+        pages = story.get("pages") or []
+
+        # ── illustrating (18-78) ──
+        _book_pdf_job_update(job_id, {"stage": "illustrating", "progress": 18})
+        generated_images = req_data.get("generated_images") or {}
+        gemini_model = req_data.get("gemini_model") or "imagen-4.0-fast-generate-001"
+        style_suffix = _safe_style(req_data.get("style_suffix") or "")
+
+        def _reusable_filename(pnum) -> Optional[str]:
+            fname = generated_images.get(str(pnum)) or generated_images.get(pnum)
+            return fname if (fname and _resolve_image_path(fname)) else None
+
+        n_needed = sum(1 for pg in pages if not _reusable_filename(pg.get("page")))
+        _book_pdf_job_update(job_id, {"total_pages": n_needed})
+
+        image_uris: dict = {}
+        pages_generated = 0
+        pages_reused = 0
+        idx = 0
+        for pg in pages:
+            pnum = pg.get("page")
+            reused = _reusable_filename(pnum)
+            if reused:
+                use_fname = reused
+                pages_reused += 1
+            else:
+                idx += 1
+                _book_pdf_job_update(job_id, {
+                    "current_page": idx,
+                    "progress": 18 + int((idx - 1) * (78 - 18) / max(n_needed, 1)),
+                })
+                use_fname = _generate_book_pdf_page_image(pg, gemini_model, style_suffix, gemini_key)
+                pages_generated += 1
+
+            src_path = _resolve_image_path(use_fname)
+            if src_path is None:
+                raise RuntimeError(f"Page image not found on disk: {use_fname}")
+            with open(src_path, "rb") as fh:
+                b64 = base64.b64encode(fh.read()).decode()
+            image_uris[pnum] = f"data:image/png;base64,{b64}"
+
+        _book_pdf_job_update(job_id, {
+            "progress": 78,
+            "pages_generated": pages_generated,
+            "pages_reused": pages_reused,
+        })
+
+        # ── rendering (78-90) ──
+        _book_pdf_job_update(job_id, {"stage": "rendering", "progress": 80})
+        html = book_pdf.build_storybook_html(story, image_uris)
+        book_bytes = book_pdf.render_pdf(html)
+        _book_pdf_job_update(job_id, {"progress": 90})
+
+        # ── practice-sheet (90-96) — zh only, skipped if zero characters found ──
+        practice_bytes = None
+        practice_included = False
+        if (story.get("language") or language) == "zh":
+            _book_pdf_job_update(job_id, {"stage": "practice-sheet", "progress": 92})
+            chars = practice_sheet_local_mod.top_characters(pages, n=10)
+            if chars:
+                practice_bytes = practice_sheet_local_mod.render_pdf_bytes(
+                    story.get("book_title_zh", "") or "",
+                    story.get("book_title_en", "") or "",
+                    chars,
+                    boxes=8,
+                )
+                practice_included = True
+        _book_pdf_job_update(job_id, {"progress": 96, "practice_sheet_included": practice_included})
+
+        # ── merging (96-99) ──
+        _book_pdf_job_update(job_id, {"stage": "merging", "progress": 97})
+        final_bytes = book_pdf.merge_pdfs(book_bytes, practice_bytes) if practice_bytes else book_bytes
+
+        os.makedirs(BOOK_PDF_DIR, exist_ok=True)
+        pdf_path = os.path.join(BOOK_PDF_DIR, f"{job_id}.pdf")
+        with open(pdf_path, "wb") as fh:
+            fh.write(final_bytes)
+
+        _book_pdf_job_update(job_id, {
+            "stage": "done",
+            "progress": 100,
+            "pdf_filename": f"{job_id}.pdf",
+            "book_title_en": story.get("book_title_en"),
+        })
+
+    except HTTPException as exc:
+        _book_pdf_job_update(job_id, {"stage": "error", "error": str(exc.detail)})
+    except Exception as exc:
+        _book_pdf_job_update(job_id, {"stage": "error", "error": str(exc)})
+    finally:
+        _BOOK_PDF_SEM.release()
+
+
+@app.post("/book-pdf")
+def book_pdf_start(req: BookPDFRequest):
+    """Start a prompt/existing → printable-PDF job. Returns {job_id}."""
+    language = req.language or languages.DEFAULT_LANGUAGE
+    if language not in languages.LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"Unknown language: {language}")
+
+    # SECURITY: the worker reads and base64-embeds every generated_images value
+    # from OUTPUT_DIR in ALL modes, so validate the allow-list unconditionally —
+    # NOT only in the existing-mode branch. Without this, a mode="prompt" caller
+    # could pass an absolute/traversal path (e.g. "config.json", "/etc/passwd")
+    # and exfiltrate it inside the downloadable PDF. See figure/get_image guards.
+    for fname in (req.generated_images or {}).values():
+        if not re.fullmatch(r"[a-f0-9]{32}\.png", fname):
+            raise HTTPException(status_code=400, detail=f"Invalid generated_images filename: {fname!r}")
+
+    if req.mode == "prompt":
+        if not (req.concept or "").strip() and not (req.character or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Provide a Character Description or a Story Prompt.",
+            )
+        if req.page_count not in (11, 15, 19):
+            raise HTTPException(status_code=400, detail="page_count must be one of 11, 15, 19.")
+        page_numbers = list(range(1, req.page_count + 1))
+    else:
+        story = req.story
+        if not story or not story.get("pages"):
+            raise HTTPException(
+                status_code=400,
+                detail='mode="existing" requires a non-empty story with pages.',
+            )
+        story_lang = story.get("language")
+        if story_lang and story_lang != language:
+            raise HTTPException(
+                status_code=400,
+                detail=f"language ({language}) does not match story.language ({story_lang}).",
+            )
+        page_numbers = [pg.get("page") for pg in story.get("pages", [])]
+
+    recheck = _resolve_book_pdf_recheck(req.mode, req.recheck_readings)
+    needs_anthropic = (req.mode == "prompt") or recheck
+    needs_gemini = _book_pdf_needs_gemini(page_numbers, req.generated_images)
+
+    anthropic_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
+    if needs_anthropic and not anthropic_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set on server.")
+
+    gemini_key = req.gemini_key or settings_store.get_key("GEMINI_API_KEY")
+    if needs_gemini and not gemini_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not set on server.")
+
+    if not _BOOK_PDF_SEM.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Server busy — try again shortly.")
+
+    # The worker releases the permit in its finally. If we fail to spawn it
+    # (job-store or thread-start error), the finally never runs — release here
+    # so a spawn failure can't permanently leak a BoundedSemaphore permit.
+    try:
+        job_id = uuid.uuid4().hex
+        _book_pdf_job_create(job_id)
+
+        req_data = req.model_dump(exclude={"anthropic_key", "gemini_key"})
+        thread = threading.Thread(
+            target=_run_book_pdf_job,
+            args=(job_id, req_data, anthropic_key, gemini_key),
+            daemon=True,
+        )
+        thread.start()
+    except BaseException:
+        _BOOK_PDF_SEM.release()
+        raise
+
+    return {"job_id": job_id}
+
+
+@app.get("/book-pdf/status/{job_id}")
+def book_pdf_status(job_id: str):
+    """Poll the status of a book-pdf generation job."""
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format.")
+    record = _book_pdf_job_read(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return record
+
+
+@app.get("/book-pdf/download/{job_id}")
+def book_pdf_download(job_id: str):
+    """Download the generated book PDF. Returns 409 if the job is not done yet."""
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id format.")
+    record = _book_pdf_job_read(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if record["stage"] != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not done yet (stage: {record['stage']}).",
+        )
+    # Path built ONLY from job_id (never a client-supplied field) + the fixed dir.
+    pdf_path = os.path.join(BOOK_PDF_DIR, f"{job_id}.pdf")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="PDF file not found on server.")
+    raw_title = record.get("book_title_en", "") or ""
+    slug = re.sub(r"[^a-z0-9]+", "_", raw_title.lower()).strip("_") or job_id
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{slug}.pdf",
     )
 
 
