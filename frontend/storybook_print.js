@@ -281,10 +281,13 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   /* Sized large so the text stays legible even when printed two-up (≈50% scale).
      The pinyin/reading (rt) is intentionally a large fraction of the character
      size — it is the hardest thing to read after downscaling. */
-  .text-ruby { font-size: 3.2rem; line-height: 2.8;
+  .text-ruby { font-size: 3.5rem; line-height: 2.9;
     font-family: ${lang.font_stack}; color: #000; }
   ruby { ruby-align: center; }
-  rt { font-size: .5em; color: #444; font-family: 'Segoe UI', system-ui, sans-serif;
+  /* Gap between each character so a wide pinyin syllable (e.g. "guāng") can't
+     run into its neighbour's — without it "guāng liàng" reads as "guangliang". */
+  .text-ruby ruby { margin: 0 .16em; }
+  rt { font-size: .46em; color: #444; font-family: 'Segoe UI', system-ui, sans-serif;
     font-weight: 500; letter-spacing: 0; }
   .text-en { font-size: 1.9rem; line-height: 1.55; color: #111;
     border-top: 1px solid #e0e0e0; padding-top: 1.25rem; }
@@ -293,7 +296,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
     .page-spread { grid-template-columns: 1fr; }
     .cover-title-native { font-size: 2.5rem; }
     .cover-title-ruby { font-size: 2.2rem; }
-    .text-ruby { font-size: 2.4rem; }
+    .text-ruby { font-size: 2.6rem; }
     .text-en { font-size: 1.45rem; }
   }
   @page { size: A4 landscape; margin: 0; }
