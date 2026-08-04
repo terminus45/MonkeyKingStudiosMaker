@@ -685,7 +685,7 @@ def get_image(filename: str):
 
 @app.post("/upload-image")
 async def upload_image(file: UploadFile = File(...)):
-    """Accept an uploaded image file, save it to OUTPUT_DIR, return the filename."""
+    """Accept an uploaded image file, save it to IMAGES_DIR, return the filename."""
     data = await file.read()
     # Re-encode through Pillow to normalise format and strip metadata
     try:
@@ -1175,13 +1175,17 @@ def _run_figure_job(job_id: str, child_prompt: str,
         })
 
         # Auto-save: download thumbnail + append to gallery/models.json
+        # Thumbnails go to IMAGES_DIR like every other image the app writes —
+        # they are served through /image/{filename}, and keeping them out of the
+        # top level of OUTPUT_DIR is what saved the two that survived the
+        # `rm -f output/*.png` incident.
         thumbnail_url = refine_task.get("thumbnail_url")
         thumbnail_filename = None
         try:
             if thumbnail_url:
                 thumbnail_filename = f"{uuid.uuid4().hex}.png"
-                thumb_dest = os.path.join(OUTPUT_DIR, thumbnail_filename)
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                thumb_dest = os.path.join(IMAGES_DIR, thumbnail_filename)
+                os.makedirs(IMAGES_DIR, exist_ok=True)
                 meshy_generator.download_model(thumbnail_url, thumb_dest)
         except Exception:
             thumbnail_filename = None  # thumbnail failure is non-fatal
@@ -1286,13 +1290,14 @@ def _run_figure_image_job(job_id: str, filename: str, prompt: str,
         })
 
         # Auto-save to gallery — best-effort; failure is non-fatal
+        # Thumbnails go to IMAGES_DIR (see the matching note in the text-to-3D worker).
         thumbnail_url = task.get("thumbnail_url")
         thumbnail_filename = None
         try:
             if thumbnail_url:
                 thumbnail_filename = f"{uuid.uuid4().hex}.png"
-                thumb_dest = os.path.join(OUTPUT_DIR, thumbnail_filename)
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                thumb_dest = os.path.join(IMAGES_DIR, thumbnail_filename)
+                os.makedirs(IMAGES_DIR, exist_ok=True)
                 meshy_generator.download_model(thumbnail_url, thumb_dest)
         except Exception:
             thumbnail_filename = None
