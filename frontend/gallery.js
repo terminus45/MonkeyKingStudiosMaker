@@ -197,7 +197,7 @@ function buildImageCard(img) {
         aria-label="View this picture larger"
       >🔍 View Pic</button>
       <button
-        class="book-action-btn"
+        class="book-action-btn book-action-btn--figure"
         data-action="make-figure"
         aria-label="Make a 3D figure from this picture"
       >🧸 Make Figure</button>
@@ -275,6 +275,10 @@ async function deleteImage(e, imageId, card) {
 // COUPLING NOTE: the localStorage key/shape below must stay in sync with
 // figure_maker.js FM_JOB_KEY / saveFmJob — mirrors character_generator.js.
 async function makeFigureFromImage(e, img) {
+  if (!confirm(
+    'Make a 3D figure from this picture?\n\n' +
+    'This is a paid 3D generation and takes a few minutes. Continue?'
+  )) return;
   const btn = e.currentTarget;
   const originalLabel = btn.textContent;
   btn.disabled = true;
@@ -405,9 +409,12 @@ function buildBookCard(book) {
   card.className = 'book-card';
 
   const coverSrc  = book.cover_image ? `${API}/image/${book.cover_image}` : null;
+  const isTextOnly = book.include_art === false;
   const coverHTML = coverSrc
     ? `<img src="${coverSrc}" alt="cover" loading="lazy">`
-    : `<div class="book-cover-placeholder">📖</div>`;
+    : isTextOnly
+      ? `<div class="book-cover-placeholder">📝</div>`
+      : `<div class="book-cover-placeholder">📖</div>`;
 
   const date        = book.saved_at
     ? new Date(book.saved_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })

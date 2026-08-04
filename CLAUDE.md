@@ -149,13 +149,15 @@ Three routes (declared before the static mount): `POST /practice-sheet`, `GET /p
 
 ### Practice Sheet — local (Chinese only, no Claude)
 
-A second button "✏️ Generate Practice Locally" sits next to the cloud one (same zh-only gating in `setLanguage()`). It generates the PDF **in-process with ReportLab — no Claude call, no dictionary**. `POST /practice-sheet/local` (synchronous; declared before the static mount) accepts `{language, book_title_zh, book_title_en, pages}` and returns the PDF directly as `application/pdf` (rejects non-zh with 400). This is the one path that adds a real dependency: **`reportlab`** (in `requirements.txt`); the cloud path does not.
+A second button "✏️ Generate Practice Locally" sits next to the cloud one (same zh-only gating in `setLanguage()`). It generates the PDF **in-process with ReportLab — no Claude call**. `POST /practice-sheet/local` (synchronous; declared before the static mount) accepts `{language, book_title_zh, book_title_en, pages}` and returns the PDF directly as `application/pdf` (rejects non-zh with 400). Dependencies this path adds: **`reportlab`** and **`pycccedict`** (bundled offline CC-CEDICT); the cloud path uses neither. The same `practice_sheet_local` module is also what the **`/book-pdf`** worker appends as the last page.
 
-`practice_sheet_local.py` does the work:
-- `top_characters(pages, n=10)` — frequency-counts the hanzi across the story and returns the N most frequent as `(char, pinyin)`. Pinyin comes from each page's `characters[]` (`{c,p}`) when present; **for books without that array (older Gallery books saved before per-character tracking), it falls back to deriving per-character pinyin from `zh` + `pinyin`** via a Python port of `storybook_print.js`'s `_splitPinyinSyllables`/`_buildCharacters`. Isolated-character pinyin is lowercased.
-- `render_pdf_bytes(title_zh, title_en, chars, boxes=8)` — renders a US-Letter sheet: header (Chinese title + "Writing Practice" + English subtitle + Name/Date), then one row per character showing the character + pinyin and 8 田字格 boxes (box 1 a faded trace, the rest blank with dashed crosshairs), and a footer. A host CJK font that also covers pinyin tone marks is discovered at import time (`STHeiti`/`Hiragino`/`Arial Unicode` on macOS, `wqy-zenhei` on Linux) — **no bundled font**.
+`practice_sheet_local.py` is **word-based** (was per-character): it segments the story into words and shows each with pinyin **and an English translation**.
+- `top_words(pages, n=8)` — greedy longest-match segmentation of each page's `zh` against **CC-CEDICT** (`pycccedict`, bundled offline), frequency-counts the words, and returns `(word, pinyin, english)` triples. Proper nouns are excluded during segmentation (CC-CEDICT capitalizes their pinyin, e.g. 大树→"Dà shù"), multi-character words are preferred over single chars, and words with no usable gloss (bare particles) are dropped. Pinyin is CC-CEDICT's numeric tones converted to diacritics (`yue4`→`yuè`); glosses are cleaned of `CL:` classifier notes / `[pinyin]` refs / leading grammatical notes.
+- `render_pdf_bytes(title_zh, title_en, words)` — renders a US-Letter sheet: header (Chinese title + "Writing Practice" + English subtitle + Name/Date), then one row per word showing the word + pinyin + English and 田字格 boxes (the word traced faded once, then repeated blank across the row, grouped so a 2-char word is written as a unit). A host CJK font covering pinyin tone marks is discovered at import time (`STHeiti`/`Hiragino`/`Arial Unicode` on macOS, `wqy-zenhei` on Linux) — **no bundled font**. (`boxes=` is accepted-but-ignored for backward-compat.)
 
-This means the local sheet works both for freshly-built books (authoritative `characters[]`) and for any loaded Gallery book (derived pinyin).
+**Attribution:** the bundled dictionary is **CC-CEDICT**, licensed **CC-BY-SA 4.0** (via the `pycccedict` package) — attribution is required if distributed.
+
+This works from each page's `zh` text alone, so it covers both freshly-built books and any loaded Gallery book.
 
 ### Book PDF (prompt/existing → printable PDF, async job)
 

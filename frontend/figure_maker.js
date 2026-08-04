@@ -214,6 +214,11 @@ fmGenerateBtn.addEventListener('click', async () => {
     return;
   }
 
+  if (!confirm(
+    'Build a 3D figure now?\n\n' +
+    'This is a paid 3D generation and takes a few minutes. Continue?'
+  )) return;
+
   hideError();
   _cancelled = false;
   _currentJobId = null;   // supersede any resumed/older poll loop still running

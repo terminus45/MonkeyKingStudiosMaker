@@ -402,6 +402,17 @@ input[type="range"]::-webkit-slider-thumb {
 .generate-btn:active:not(:disabled) { background: rgba(255,107,53,.70); }
 .generate-btn:disabled { opacity: .40; cursor: not-allowed; }
 
+/* Violet variant of .generate-btn — a DISTINCT color from the orange default so
+   the two are never confused. Used by "Create Figure" (Character Generator) and
+   "Generate Book with Pictures" (Book Builder). Shared here since >1 page uses it. */
+.generate-btn--figure {
+  background: #7b61ff;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+.generate-btn--figure:hover:not(:disabled)  { background: #6a4ff0; }
+.generate-btn--figure:active:not(:disabled) { background: #5b40e0; }
+
 /* ── Settings row ── */
 .settings-row {
   display: flex;

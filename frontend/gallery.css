@@ -128,6 +128,10 @@
 .book-action-btn:hover { background: rgba(255,255,255,.20); color: #ffffff; }
 .book-action-btn.danger:hover { background: rgba(229,72,77,.15); border-color: rgba(229,72,77,.70); color: #e5484d; }
 .book-action-btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Make Figure is a costly (3D) generation — flag it with the same violet as the
+   Create Figure / Build my figure! buttons (>10c generations use this style). */
+.book-action-btn--figure { background: #7b61ff; border-color: transparent; color: #ffffff; }
+.book-action-btn--figure:hover { background: #6a4ff0; color: #ffffff; }
 
 /* ── Tab bar ── */
 .gallery-tabs {

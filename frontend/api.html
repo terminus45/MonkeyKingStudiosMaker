@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Reference · MonkeyKing</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0a0b1a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="api.css">
+</head>
+<body>
+
+  <a href="#apiMain" class="skip-link">Skip to main content</a>
+
+  <header>
+    <div class="header-inner">
+      <a href="settings.html" class="settings-gear" aria-label="Settings">
+        <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </a>
+      <div class="header-title">
+        <span class="title-zh">🤖</span>
+        <span class="title-en">Monkey King Studios</span>
+      </div>
+      <nav class="header-nav" aria-label="Main navigation">
+        <a href="character_generator.html" class="nav-link">🎭 Character Generator</a>
+        <a href="book_builder.html"        class="nav-link">📖 Book Builder</a>
+        <a href="figure_maker.html"        class="nav-link">🧩 Figure Maker</a>
+        <a href="gallery.html"             class="nav-link">🖼 Gallery</a>
+      </nav>
+      <div class="server-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="apiMain" class="api-main">
+
+    <div class="api-intro">
+      <h1>API Reference</h1>
+      <p class="api-sub">Live documentation for driving the generators programmatically. Copy a URL below to use in another agent workflow.</p>
+    </div>
+
+    <!-- Copyable URLs -->
+    <section class="api-urls" aria-label="API URLs">
+      <div class="url-row">
+        <div class="url-meta">
+          <span class="url-label">Docs URL — for agents</span>
+          <span class="url-hint">Returns this full reference as markdown. Hand this to another agent/workflow.</span>
+        </div>
+        <div class="url-value">
+          <code id="rawUrl">…</code>
+          <button class="copy-btn" data-copy="rawUrl" type="button">Copy</button>
+        </div>
+      </div>
+      <div class="url-row">
+        <div class="url-meta">
+          <span class="url-label">API base URL</span>
+          <span class="url-hint">Prefix for every endpoint below (e.g. <code>&lt;base&gt;/generate</code>).</span>
+        </div>
+        <div class="url-value">
+          <code id="apiBase">…</code>
+          <button class="copy-btn" data-copy="apiBase" type="button">Copy</button>
+        </div>
+      </div>
+      <div class="url-row">
+        <div class="url-meta">
+          <span class="url-label">Interactive / schema</span>
+          <span class="url-hint">Auto-generated from the live server.</span>
+        </div>
+        <div class="url-value url-links">
+          <a id="swaggerLink" href="/docs" target="_blank" rel="noopener">Swagger UI ↗</a>
+          <a id="openapiLink" href="/openapi.json" target="_blank" rel="noopener">openapi.json ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live route list (auto-generated from /openapi.json) -->
+    <details class="api-routes" id="liveRoutes">
+      <summary>All live endpoints <span class="route-count" id="routeCount"></span></summary>
+      <div id="routeList" class="route-list">Loading…</div>
+    </details>
+
+    <!-- Rendered API.md -->
+    <article id="apiDoc" class="api-doc">Loading documentation…</article>
+
+  </main>
+
+  <div class="copy-toast" id="copyToast" role="status" aria-live="polite" hidden>Copied</div>
+
+  <script src="nav_menu.js"></script>
+  <script src="api.js"></script>
+</body>
+</html>

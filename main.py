@@ -15,7 +15,7 @@ from typing import Literal, Optional
 import anthropic
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -112,6 +112,19 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api.md")
+def api_docs_markdown():
+    """Serve the agent-facing API reference (API.md) as raw markdown.
+
+    This is the stable URL to hand to other agents/workflows — they fetch it
+    and get the full reference in one shot. The human-readable, rendered page
+    is /api.html (which fetches this)."""
+    path = Path(__file__).parent / "API.md"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="API.md not found.")
+    return FileResponse(path, media_type="text/markdown; charset=utf-8")
+
+
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
     req.style_prompt = _safe_style(req.style_prompt)
@@ -206,6 +219,7 @@ class DecomposeRequest(BaseModel):
     character: Optional[str] = ""          # shared main-character description
     language: Optional[str] = "zh"
     page_count: Optional[int] = 11
+    include_art: Optional[bool] = True    # False = text-only book, no images/image_prompt
     anthropic_key: Optional[str] = None   # per-request override (mobile clients)
 
 
@@ -234,6 +248,7 @@ class DecomposeResponse(BaseModel):
     book_title_en: str
     pages: list[PageData]
     language: Optional[str] = "zh"
+    include_art: bool = True
     # zh variant
     book_title_zh: Optional[str] = None
     book_title_pinyin: Optional[str] = None
@@ -351,16 +366,28 @@ def run_decompose(
     language: Optional[str],
     page_count: Optional[int],
     api_key: str,
+    include_art: bool = True,
 ) -> dict:
     """Core /decompose pipeline (Claude call + forced-tool schema). Extracted
     from decompose() (behavior-preserving) so the /book-pdf worker can reuse
     it without going through the HTTP layer. Everything here runs AFTER the
     caller has already resolved the API key and validated concept/character
-    aren't both empty."""
+    aren't both empty.
+
+    include_art : bool
+        True (default) = illustrated book — page_count is silently clamped to
+        {11, 15, 19} and image_prompt is required in the schema, exactly
+        today's behavior. False = text-only book — page_count is defensively
+        clamped to 1..30 (the route is expected to have already strictly
+        validated this range) and image_prompt is omitted from the schema.
+    """
     lang = languages.get(language)
     # Clamp page_count to the allowed set early — must be defined before invention
     # instruction and tool build reference it.
-    page_count = page_count if page_count in (11, 15, 19) else 11
+    if include_art:
+        page_count = page_count if page_count in (11, 15, 19) else 11
+    else:
+        page_count = page_count if page_count and 1 <= page_count <= 30 else 11
     client = anthropic.Anthropic(api_key=api_key)
 
     concept_text = (concept or "").strip()
@@ -389,12 +416,16 @@ def run_decompose(
     # Unconditional count instruction — applies to both the concept and character-only paths.
     user_content += f"\n\nDecompose this into exactly {page_count} pages, numbered 1 to {page_count}."
 
-    tool = _decompose_tool(lang, min_pages=page_count, max_pages=page_count)
+    tool = _decompose_tool(lang, min_pages=page_count, max_pages=page_count, include_image_prompt=include_art)
+
+    # Scale output-token budget with page count — a 30-page text-only book's
+    # JSON payload can exceed the flat 16384 default used for the 11/15/19 art path.
+    max_tokens = max(16384, page_count * 700)
 
     try:
         with client.messages.stream(
             model="claude-opus-4-8",
-            max_tokens=16384,
+            max_tokens=max_tokens,
             system=[
                 {
                     "type": "text",
@@ -436,6 +467,7 @@ def run_decompose(
             )
 
     data["language"] = lang["code"]
+    data["include_art"] = include_art
     return data
 
 
@@ -451,14 +483,26 @@ def decompose(req: DecomposeRequest):
             detail="Provide a Character Description or a Story Prompt.",
         )
 
-    return run_decompose(
+    if not req.include_art and not (1 <= (req.page_count or 0) <= 30):
+        raise HTTPException(
+            status_code=400,
+            detail="page_count must be between 1 and 30 for text-only books.",
+        )
+
+    data = run_decompose(
         concept=req.concept,
         style_suffix=req.style_suffix,
         character=req.character,
         language=req.language,
         page_count=req.page_count,
         api_key=api_key,
+        include_art=req.include_art,
     )
+    if not req.include_art:
+        # Bypass response_model so image_prompt is genuinely absent (not null) —
+        # mirrors /recheck-readings's existing no-response_model precedent.
+        return JSONResponse(content=data)
+    return data
 
 
 # ── Re-check readings ──────────────────────────────────────────────────────
@@ -766,6 +810,7 @@ def _read_gallery_meta(path: Path) -> dict:
         "page_count":       len(story.get("pages", [])),
         "images_generated": len(images),
         "cover_image":      images.get("1") or images.get(1),
+        "include_art":      story.get("include_art", True),
     }
 
 
@@ -1526,21 +1571,25 @@ class LocalPracticeRequest(BaseModel):
 
 @app.post("/practice-sheet/local")
 def practice_sheet_local(req: LocalPracticeRequest):
-    """Generate a Chinese character writing-practice PDF in-process (no Claude).
+    """Generate a Chinese word writing-practice PDF in-process (no Claude).
 
-    Frequency-counts the story's hanzi, picks the 10 most frequent, and renders
-    a US-Letter sheet with 8 田字格 practice boxes per character (box 1 a faded
-    trace) showing the character + its pinyin. Synchronous — returns the PDF.
+    Segments the story into words (bundled CC-CEDICT), picks the most frequent,
+    and renders a US-Letter sheet showing each word + pinyin + English translation
+    with 田字格 practice boxes (the word traced faded once, then repeated blank).
+    Synchronous — returns the PDF.
     """
     if (req.language or "zh") != "zh":
         raise HTTPException(status_code=400, detail="Practice sheets are Chinese-only.")
     pages = [p.model_dump() for p in req.pages]
-    chars = practice_sheet_local_mod.top_characters(pages, n=10)
-    if not chars:
-        raise HTTPException(status_code=400, detail="No Chinese characters found in this story.")
+    try:
+        words = practice_sheet_local_mod.top_words(pages, n=8)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not words:
+        raise HTTPException(status_code=400, detail="No Chinese words found in this story.")
     try:
         pdf = practice_sheet_local_mod.render_pdf_bytes(
-            req.book_title_zh or "", req.book_title_en or "", chars, boxes=8,
+            req.book_title_zh or "", req.book_title_en or "", words,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1615,6 +1664,7 @@ class BookPDFRequest(BaseModel):
     generated_images: Optional[dict[str, str]] = None
     # both modes
     recheck_readings: Optional[bool] = None
+    include_art: Optional[bool] = True    # False = text-only book (no images, no Gemini)
     anthropic_key: Optional[str] = None
     gemini_key: Optional[str] = None
     gemini_model: Optional[str] = "imagen-4.0-fast-generate-001"
@@ -1709,6 +1759,7 @@ def _run_book_pdf_job(job_id: str, req_data: dict, anthropic_key: Optional[str],
                 language=language,
                 page_count=req_data.get("page_count") or 11,
                 api_key=anthropic_key,
+                include_art=req_data.get("include_art", True),
             )
         else:
             story = dict(req_data.get("story") or {})
@@ -1733,51 +1784,59 @@ def _run_book_pdf_job(job_id: str, req_data: dict, anthropic_key: Optional[str],
         _book_pdf_job_update(job_id, {"progress": 18})
 
         pages = story.get("pages") or []
-
-        # ── illustrating (18-78) ──
-        _book_pdf_job_update(job_id, {"stage": "illustrating", "progress": 18})
-        generated_images = req_data.get("generated_images") or {}
-        gemini_model = req_data.get("gemini_model") or "imagen-4.0-fast-generate-001"
-        style_suffix = _safe_style(req_data.get("style_suffix") or "")
-
-        def _reusable_filename(pnum) -> Optional[str]:
-            fname = generated_images.get(str(pnum)) or generated_images.get(pnum)
-            return fname if (fname and _resolve_image_path(fname)) else None
-
-        n_needed = sum(1 for pg in pages if not _reusable_filename(pg.get("page")))
-        _book_pdf_job_update(job_id, {"total_pages": n_needed})
+        # undefined/true -> illustrated (backward-compat); only explicit False is text-only.
+        illustrated = story.get("include_art", True) is not False
 
         image_uris: dict = {}
-        pages_generated = 0
-        pages_reused = 0
-        idx = 0
-        for pg in pages:
-            pnum = pg.get("page")
-            reused = _reusable_filename(pnum)
-            if reused:
-                use_fname = reused
-                pages_reused += 1
-            else:
-                idx += 1
-                _book_pdf_job_update(job_id, {
-                    "current_page": idx,
-                    "progress": 18 + int((idx - 1) * (78 - 18) / max(n_needed, 1)),
-                })
-                use_fname = _generate_book_pdf_page_image(pg, gemini_model, style_suffix, gemini_key)
-                pages_generated += 1
+        if illustrated:
+            # ── illustrating (18-78) ──
+            _book_pdf_job_update(job_id, {"stage": "illustrating", "progress": 18})
+            generated_images = req_data.get("generated_images") or {}
+            gemini_model = req_data.get("gemini_model") or "imagen-4.0-fast-generate-001"
+            style_suffix = _safe_style(req_data.get("style_suffix") or "")
 
-            src_path = _resolve_image_path(use_fname)
-            if src_path is None:
-                raise RuntimeError(f"Page image not found on disk: {use_fname}")
-            with open(src_path, "rb") as fh:
-                b64 = base64.b64encode(fh.read()).decode()
-            image_uris[pnum] = f"data:image/png;base64,{b64}"
+            def _reusable_filename(pnum) -> Optional[str]:
+                fname = generated_images.get(str(pnum)) or generated_images.get(pnum)
+                return fname if (fname and _resolve_image_path(fname)) else None
 
-        _book_pdf_job_update(job_id, {
-            "progress": 78,
-            "pages_generated": pages_generated,
-            "pages_reused": pages_reused,
-        })
+            n_needed = sum(1 for pg in pages if not _reusable_filename(pg.get("page")))
+            _book_pdf_job_update(job_id, {"total_pages": n_needed})
+
+            pages_generated = 0
+            pages_reused = 0
+            idx = 0
+            for pg in pages:
+                pnum = pg.get("page")
+                reused = _reusable_filename(pnum)
+                if reused:
+                    use_fname = reused
+                    pages_reused += 1
+                else:
+                    idx += 1
+                    _book_pdf_job_update(job_id, {
+                        "current_page": idx,
+                        "progress": 18 + int((idx - 1) * (78 - 18) / max(n_needed, 1)),
+                    })
+                    use_fname = _generate_book_pdf_page_image(pg, gemini_model, style_suffix, gemini_key)
+                    pages_generated += 1
+
+                src_path = _resolve_image_path(use_fname)
+                if src_path is None:
+                    raise RuntimeError(f"Page image not found on disk: {use_fname}")
+                with open(src_path, "rb") as fh:
+                    b64 = base64.b64encode(fh.read()).decode()
+                image_uris[pnum] = f"data:image/png;base64,{b64}"
+
+            _book_pdf_job_update(job_id, {
+                "progress": 78,
+                "pages_generated": pages_generated,
+                "pages_reused": pages_reused,
+            })
+        else:
+            # Text-only: no images at all — skip the whole illustrating stage.
+            _book_pdf_job_update(job_id, {
+                "progress": 78, "pages_generated": 0, "pages_reused": 0, "total_pages": 0,
+            })
 
         # ── rendering (78-90) ──
         _book_pdf_job_update(job_id, {"stage": "rendering", "progress": 80})
@@ -1785,18 +1844,17 @@ def _run_book_pdf_job(job_id: str, req_data: dict, anthropic_key: Optional[str],
         book_bytes = book_pdf.render_pdf(html)
         _book_pdf_job_update(job_id, {"progress": 90})
 
-        # ── practice-sheet (90-96) — zh only, skipped if zero characters found ──
+        # ── practice-sheet (90-96) — zh only, skipped if no words found ──
         practice_bytes = None
         practice_included = False
         if (story.get("language") or language) == "zh":
             _book_pdf_job_update(job_id, {"stage": "practice-sheet", "progress": 92})
-            chars = practice_sheet_local_mod.top_characters(pages, n=10)
-            if chars:
+            words = practice_sheet_local_mod.top_words(pages, n=8)
+            if words:
                 practice_bytes = practice_sheet_local_mod.render_pdf_bytes(
                     story.get("book_title_zh", "") or "",
                     story.get("book_title_en", "") or "",
-                    chars,
-                    boxes=8,
+                    words,
                 )
                 practice_included = True
         _book_pdf_job_update(job_id, {"progress": 96, "practice_sheet_included": practice_included})
@@ -1847,9 +1905,15 @@ def book_pdf_start(req: BookPDFRequest):
                 status_code=400,
                 detail="Provide a Character Description or a Story Prompt.",
             )
-        if req.page_count not in (11, 15, 19):
-            raise HTTPException(status_code=400, detail="page_count must be one of 11, 15, 19.")
+        # Text-only allows 1-30 pages (cheap, Claude-only); illustrated keeps the
+        # 11/15/19 cap since each page is a paid image generation.
+        if req.include_art:
+            if req.page_count not in (11, 15, 19):
+                raise HTTPException(status_code=400, detail="page_count must be one of 11, 15, 19.")
+        elif not (1 <= (req.page_count or 0) <= 30):
+            raise HTTPException(status_code=400, detail="page_count must be between 1 and 30 for text-only books.")
         page_numbers = list(range(1, req.page_count + 1))
+        text_only = req.include_art is False
     else:
         story = req.story
         if not story or not story.get("pages"):
@@ -1864,10 +1928,13 @@ def book_pdf_start(req: BookPDFRequest):
                 detail=f"language ({language}) does not match story.language ({story_lang}).",
             )
         page_numbers = [pg.get("page") for pg in story.get("pages", [])]
+        # For an existing story the story's own flag is authoritative.
+        text_only = story.get("include_art", True) is False
 
     recheck = _resolve_book_pdf_recheck(req.mode, req.recheck_readings)
     needs_anthropic = (req.mode == "prompt") or recheck
-    needs_gemini = _book_pdf_needs_gemini(page_numbers, req.generated_images)
+    # Text-only books never generate images, so they never need a Gemini key.
+    needs_gemini = (not text_only) and _book_pdf_needs_gemini(page_numbers, req.generated_images)
 
     anthropic_key = req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY")
     if needs_anthropic and not anthropic_key:

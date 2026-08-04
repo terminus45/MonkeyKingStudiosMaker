@@ -188,12 +188,25 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   const titleNative  = story[lang.title_native_field]  ?? '';
   const titleReading = story[lang.title_reading_field] ?? '';
   const titleBlock   = renderRubyTitle(story, langCode);
+  // undefined (books saved before this feature) or true → illustrated, the
+  // backward-compat default. Only an explicit `false` selects text-only.
+  const illustrated  = story.include_art !== false;
 
-  const coverImg = imageB64[1]
+  const coverImg = illustrated && imageB64[1]
     ? `<img src="${imageB64[1]}" alt="cover" class="cover-img">`
     : '';
 
-  const pageSpread = pages.map(pg => {
+  const pageCards = pages.map(pg => {
+    if (!illustrated) {
+      return `
+    <div class="page-spread page-spread--text-only">
+      <div class="spread-right">
+        <div class="page-num">Page ${pg.page}</div>
+        ${renderRubyText(pg, langCode)}
+        <p class="text-en">${escHtml(pg.en)}</p>
+      </div>
+    </div>`;
+    }
     const img = imageB64[pg.page]
       ? `<img src="${imageB64[pg.page]}" alt="Page ${pg.page}" class="page-img">`
       : `<div class="page-img-placeholder">No image</div>`;
@@ -207,6 +220,11 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
       </div>
     </div>`;
   }).join('\n');
+
+  // Text-only: wrap the cards in a 2-column grid so 4 fit per portrait sheet.
+  const pageSpread = illustrated
+    ? pageCards
+    : `<div class="text-grid">${pageCards}\n  </div>`;
 
   const printScript = printMode ? `
 <script>
@@ -268,6 +286,29 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
   }
   .spread-left { display: flex; align-items: center; justify-content: center;
     background: #1a1a1a; border-right: 1px solid #ccc; overflow: hidden; }
+  /* Text-only mode: no image column — the story text becomes a full-width page. */
+  .page-spread--text-only { grid-template-columns: 1fr; }
+  .page-spread--text-only .spread-right {
+    align-items: center; text-align: center;
+    padding: 3.5rem 4rem;
+  }
+  .page-spread--text-only .text-ruby { font-size: 4.5rem; }
+  .page-spread--text-only .text-en   { font-size: 2.3rem; border-top: none; }
+  /* Text-only books print PORTRAIT with 4 story pages per sheet (2x2 grid) at a
+     reduced font. Scoped to <body class="text-only"> so illustrated books stay
+     landscape one-spread-per-page. */
+  body.text-only .text-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; padding: 7mm;
+  }
+  body.text-only .page-spread--text-only {
+    min-height: 84mm;
+    border: 1px solid #e2e2e2; border-radius: 8px;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  body.text-only .page-spread--text-only .spread-right { padding: 4mm 6mm; gap: .4rem; }
+  body.text-only .text-ruby { font-size: 1.7rem; line-height: 2.15; }
+  body.text-only .text-en   { font-size: .95rem; padding-top: .3rem; }
+  body.text-only .page-num  { font-size: .6rem; }
   .page-img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .page-img-placeholder { width: 100%; height: 100%; min-height: 320px;
     display: flex; align-items: center; justify-content: center;
@@ -299,12 +340,15 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
     .text-ruby { font-size: 2.6rem; }
     .text-en { font-size: 1.45rem; }
   }
-  @page { size: A4 landscape; margin: 0; }
+  @page { size: A4 ${illustrated ? 'landscape' : 'portrait'}; margin: 0; }
   @media print {
     *, *::before, *::after { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { background: #fff; }
     .book { max-width: 100%; }
-    .cover, .page-spread {
+    .cover { page-break-after: always; break-after: page;
+             page-break-inside: avoid; break-inside: avoid; }
+    /* Illustrated: one spread per page. Text-only: the 4-up grid flows naturally. */
+    body:not(.text-only) .page-spread {
       page-break-after: always; break-after: page;
       page-break-inside: avoid; break-inside: avoid;
     }
@@ -312,7 +356,7 @@ function buildStorybookHTML(story, pages, imageB64, printMode = false) {
 </style>
 ${printScript}
 </head>
-<body>
+<body class="${illustrated ? '' : 'text-only'}">
 <div class="book">
   <div class="cover">
     ${coverImg}

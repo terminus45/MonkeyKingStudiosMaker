@@ -223,3 +223,19 @@
   .settings-footer { padding: 1rem; }
   .settings-key-input-wrap { min-width: 0; }
 }
+
+/* API Reference link at the bottom of Settings */
+.settings-api-link {
+  max-width: 720px;
+  margin: 1.5rem auto 0;
+  text-align: center;
+  font-size: .9rem;
+  color: var(--muted);
+}
+.settings-api-link a {
+  color: var(--mustard);
+  font-weight: 800;
+  text-decoration: none;
+}
+.settings-api-link a:hover { text-decoration: underline; }
+.settings-api-link span { display: inline-block; margin-left: .35rem; }

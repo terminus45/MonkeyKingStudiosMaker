@@ -130,11 +130,19 @@
       <!-- END CANONICAL SHARED INPUTS PANEL -->
 
       <div class="decompose-btn-row">
-        <button id="autoGenBtn" class="generate-btn">
-          <span id="autoGenLabel">⚡ Generate Story and Pictures</span>
-          <div class="spinner hidden" id="autoGenSpinner"></div>
+        <button id="genBookArtBtn" class="generate-btn generate-btn--figure">
+          <span id="genBookArtLabel">📖 Generate Book with Pictures</span>
+          <div class="spinner hidden" id="genBookArtSpinner"></div>
+        </button>
+        <button id="genBookTextBtn" class="generate-btn">
+          <span id="genBookTextLabel">📝 Generate Book - Text Only</span>
+          <div class="spinner hidden" id="genBookTextSpinner"></div>
         </button>
       </div>
+      <p class="hint" id="bookTypeHint">
+        Books with pictures make one paid AI image per page. Text-only books skip images —
+        faster to generate, and free of image cost.
+      </p>
       <p class="hint-text" id="decomposeHint"></p>
     </section>
 

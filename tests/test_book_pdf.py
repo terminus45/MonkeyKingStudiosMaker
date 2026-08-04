@@ -638,6 +638,71 @@ def test_forced_exception_sets_error_stage_and_releases_sem(tmp_dirs, monkeypatc
     main._BOOK_PDF_SEM.release()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 8. Text-only books (include_art=false) — no images, no Gemini
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_text_only_prompt_page_count_over_30_is_400(client, default_keys):
+    """Text-only allows 1-30; 31 is rejected with a text-only-specific message."""
+    r = client.post("/book-pdf", json=_prompt_req_data(include_art=False, page_count=31))
+    assert r.status_code == 400, r.text
+    assert "1 and 30" in r.text or "text-only" in r.text
+
+
+def test_text_only_prompt_page_count_25_is_accepted(client, tmp_dirs, default_keys, monkeypatch):
+    """25 pages is invalid for illustrated (11/15/19) but valid for text-only."""
+    monkeypatch.setattr(main, "run_decompose", lambda **k: {**_make_story(n_pages=2), "include_art": False})
+    monkeypatch.setattr(main, "run_recheck", lambda **k: _echo_run_recheck(**k))
+    monkeypatch.setattr(main.gemini_generator, "generate", _raise_if_called("gemini_generator.generate"))
+    monkeypatch.setattr(main.book_pdf, "render_pdf", _fake_render_pdf)
+    monkeypatch.setattr(main.book_pdf, "merge_pdfs", _fake_merge_pdfs)
+    r = client.post("/book-pdf", json=_prompt_req_data(include_art=False, page_count=25))
+    assert r.status_code == 200, r.text
+    _wait_for_terminal_stage(client, r.json()["job_id"])
+
+
+def test_text_only_prompt_no_gemini_key_is_not_503(client, tmp_dirs, monkeypatch):
+    """A text-only book needs no Gemini key — only Anthropic."""
+    monkeypatch.setattr(settings_store, "get_key",
+                        lambda name: "fake-a" if name == "ANTHROPIC_API_KEY" else None)
+    monkeypatch.setattr(main, "run_decompose", lambda **k: {**_make_story(n_pages=2), "include_art": False})
+    monkeypatch.setattr(main, "run_recheck", lambda **k: _echo_run_recheck(**k))
+    monkeypatch.setattr(main.gemini_generator, "generate", _raise_if_called("gemini_generator.generate"))
+    monkeypatch.setattr(main.book_pdf, "render_pdf", _fake_render_pdf)
+    monkeypatch.setattr(main.book_pdf, "merge_pdfs", _fake_merge_pdfs)
+    r = client.post("/book-pdf", json=_prompt_req_data(include_art=False, page_count=11))
+    assert r.status_code == 200, r.text
+    _wait_for_terminal_stage(client, r.json()["job_id"])
+
+
+def test_text_only_prompt_job_skips_gemini_and_renders_text_only(tmp_dirs, monkeypatch):
+    """The worker for a text-only book calls NEITHER gemini.generate NOR
+    save_image, reaches done, and hands render_pdf a text-only HTML document
+    (no <img>, full-width text spreads)."""
+    monkeypatch.setattr(main, "run_decompose",
+                        lambda **k: {**_make_story(language="zh", n_pages=2), "include_art": False})
+    monkeypatch.setattr(main, "run_recheck", lambda **k: _echo_run_recheck(**k))
+    monkeypatch.setattr(main.gemini_generator, "generate", _raise_if_called("gemini_generator.generate"))
+    monkeypatch.setattr(main.gemini_generator, "save_image", _raise_if_called("gemini_generator.save_image"))
+    captured = {}
+    def _cap_render(html):
+        captured["html"] = html
+        assert isinstance(html, str) and "<html" in html
+        return b"%PDF-1.4 FAKE TEXT-ONLY"
+    monkeypatch.setattr(main.book_pdf, "render_pdf", _cap_render)
+    monkeypatch.setattr(main.book_pdf, "merge_pdfs", _fake_merge_pdfs)
+
+    job_id = uuid.uuid4().hex
+    _run_worker_with_sem(job_id, _prompt_req_data(language="zh", include_art=False, page_count=2))
+
+    rec = main._book_pdf_job_read(job_id)
+    assert rec["stage"] == "done", rec
+    assert rec["pages_generated"] == 0
+    # build_storybook_html ran for real → assert the text-only layout was rendered.
+    assert "<img" not in captured["html"]
+    assert "page-spread--text-only" in captured["html"]
+
+
 # Lightweight runner so the file works even without pytest installed.
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

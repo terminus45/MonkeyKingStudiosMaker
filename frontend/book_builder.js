@@ -31,6 +31,13 @@ function langMeta(code) {
 let storyData = null;   // DecomposeResponse from server
 let geminiAR = '4:3';  // default: classic storybook shape
 let currentLang = DEFAULT_LANG;
+// Book Type: true = Illustrated (default), false = Text Only. Only meaningful
+// as the *request* value before a story exists — once storyData exists, the
+// server-returned storyData.include_art is the single source of truth.
+let includeArt = true;
+// Set right before startBookGeneration programmatically clicks queueBtn, so the
+// image batch isn't confirmed twice (it already confirmed). Consumed on next click.
+let _imageBatchConfirmed = false;
 // Set true when a Check Readings Apply has been committed; enables staleness tracking.
 // Reset on decompose/clear so freshly-generated books start clean.
 let lastCheckApplied = false;
@@ -40,9 +47,10 @@ const sharedStoryInput     = document.getElementById('sharedStoryInput');
 const sharedCharacterInput = document.getElementById('sharedCharacterInput');
 const sharedStyleInput     = document.getElementById('sharedStyleInput');
 const decomposeHint   = document.getElementById('decomposeHint');
-const autoGenBtn      = document.getElementById('autoGenBtn');
-const autoGenLabel    = document.getElementById('autoGenLabel');
-const autoGenSpinner  = document.getElementById('autoGenSpinner');
+const genBookArtBtn      = document.getElementById('genBookArtBtn');
+const genBookArtSpinner  = document.getElementById('genBookArtSpinner');
+const genBookTextBtn     = document.getElementById('genBookTextBtn');
+const genBookTextSpinner = document.getElementById('genBookTextSpinner');
 
 const step2           = document.getElementById('step2');
 const bookTitleDisplay= document.getElementById('bookTitleDisplay');
@@ -123,6 +131,35 @@ document.getElementById('geminiAspectPresets').addEventListener('click', e => {
   saveGenSettings();
 });
 
+// ── Book generation (two dedicated buttons) ────────────────────────────────
+// Instead of a mode toggle, two buttons each start a generation directly:
+//   • genBookArtBtn  (violet) → book WITH pictures (paid image per page)
+//   • genBookTextBtn (orange) → text-only book (no images)
+// Clicking either starts a fresh book in that mode, so there's no locked toggle.
+async function startBookGeneration(withArt) {
+  includeArt = withArt;   // feeds the /decompose request body + card rendering
+  if (withArt) {
+    const rawPages  = parseInt(localStorage.getItem('monkeyking_bb_pages'), 10);
+    const n = (rawPages === 11 || rawPages === 15 || rawPages === 19) ? rawPages : 11;
+    if (!confirm(
+      `Generate a ${n}-page book with pictures?\n\n` +
+      `This writes the story and generates about ${n} pictures — each is a paid AI image generation.\n\n` +
+      `Continue?`
+    )) return;
+  }
+  if (!(await runDecompose())) return;
+  // Text-only books have no image step; illustrated books queue the paid images.
+  if (storyData && storyData.include_art !== false) {
+    _imageBatchConfirmed = true;   // already confirmed above — don't double-prompt
+    queueBtn.click();
+  }
+  // Scroll to the page cards (+ image progress, if any).
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+}
+
+genBookArtBtn.addEventListener('click',  () => startBookGeneration(true));
+genBookTextBtn.addEventListener('click', () => startBookGeneration(false));
+
 // ── Gen settings persistence ───────────────────────────────────────────────
 const GEN_KEY = 'monkeyking_gen_settings';
 
@@ -185,13 +222,6 @@ document.getElementById('resetGenSettingsBtn').addEventListener('click', () => {
 });
 
 // ── Decompose ──────────────────────────────────────────────────────────────
-autoGenBtn.addEventListener('click', async () => {
-  if (await runDecompose()) {
-    queueBtn.click();
-    // Scroll to the bottom so the page cards + image-generation progress are in view.
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-  }
-});
 
 async function runDecompose() {
   const concept    = sharedStoryInput.value.trim();
@@ -217,6 +247,7 @@ async function runDecompose() {
         language: currentLang,
         character,
         page_count: pageCount,
+        include_art: includeArt,
       }),
     });
     if (!res.ok) {
@@ -227,10 +258,20 @@ async function runDecompose() {
     lastCheckApplied = false;
     Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
     decomposeHint.textContent = '';
+    includeArt = storyData.include_art !== false;   // sync to what the server built
     renderPages(storyData);
     step2.classList.remove('hidden');
     step4.classList.remove('hidden');
-    queueBtn.disabled = false;
+    if (storyData.include_art === false) {
+      // Text-only: no image-generation step. step3 already renders hidden by
+      // default (the auto-flow never reveals it even for illustrated books —
+      // image generation is driven programmatically via queueBtn.click()), but
+      // set this explicitly/defensively and keep the queue button unusable.
+      step3.classList.add('hidden');
+      queueBtn.disabled = true;
+    } else {
+      queueBtn.disabled = false;
+    }
     checkReadingsBtn.disabled = false;
     saveState();
     return true;
@@ -243,10 +284,12 @@ async function runDecompose() {
 }
 
 function setDecomposeLoading(on) {
-  autoGenBtn.disabled   = on;
+  genBookArtBtn.disabled  = on;
+  genBookTextBtn.disabled = on;
   checkReadingsBtn.disabled = on;
-  autoGenLabel.textContent   = on ? 'Writing…' : '⚡ Generate Story and Pictures';
-  autoGenSpinner.classList.toggle('hidden', !on);
+  // Show the spinner on whichever mode is generating.
+  genBookArtSpinner.classList.toggle('hidden',  !(on && includeArt));
+  genBookTextSpinner.classList.toggle('hidden', !(on && !includeArt));
 }
 
 // ── Render page cards ──────────────────────────────────────────────────────
@@ -272,8 +315,9 @@ function buildCard(pg) {
 
   const nativeVal  = pg[meta.native_field]  ?? '';
   const readingVal = pg[meta.reading_field] ?? '';
+  const illustrated = storyData?.include_art !== false;
 
-  card.innerHTML = `
+  const thumbHTML = illustrated ? `
     <div class="card-thumb-wrap" id="thumb-wrap-${pg.page}">
       <div class="thumb-content" id="thumb-${pg.page}">
         <div class="thumb-placeholder">Page ${pg.page} · no image yet</div>
@@ -291,7 +335,16 @@ function buildCard(pg) {
           <input type="file" accept="image/*" style="display:none" data-page="${pg.page}">
         </label>
       </div>
-    </div>
+    </div>` : '';
+
+  const promptFieldHTML = illustrated ? `
+      <div class="card-field prompt-field">
+        <label>Image Prompt</label>
+        <textarea rows="4" data-field="image_prompt">${escHtml(pg.image_prompt)}</textarea>
+      </div>` : '';
+
+  card.innerHTML = `
+    ${thumbHTML}
     <div class="card-body">
       <div class="card-page-num">Page ${pg.page}</div>
 
@@ -313,11 +366,7 @@ function buildCard(pg) {
         <label>English</label>
         <textarea rows="2" data-field="en">${escHtml(pg.en)}</textarea>
       </div>
-
-      <div class="card-field prompt-field">
-        <label>Image Prompt</label>
-        <textarea rows="4" data-field="image_prompt">${escHtml(pg.image_prompt)}</textarea>
-      </div>
+${promptFieldHTML}
     </div>
     <div class="card-error hidden" id="card-error-${pg.page}"></div>
   `;
@@ -471,14 +520,19 @@ function readCard(pageNum) {
   const stale = card.dataset.readingsStale === 'true';
   const characters = stale ? null : (src?.characters ?? null);
 
-  return {
+  const result = {
     page: pageNum,
     [meta.native_field]:  get(meta.native_field),
     [meta.reading_field]: get(meta.reading_field),
     en: get('en'),
-    image_prompt: get('image_prompt'),
     characters,
   };
+  // Text-only cards have no Image Prompt field in the DOM — omit the key
+  // entirely rather than emit a phantom empty string.
+  if (storyData?.include_art !== false) {
+    result.image_prompt = get('image_prompt');
+  }
+  return result;
 }
 
 // ── Image generation queue ─────────────────────────────────────────────────
@@ -493,6 +547,16 @@ stopBtn.addEventListener('click', () => {
 
 queueBtn.addEventListener('click', async () => {
   if (!storyData) return;
+  // Confirm the paid image batch — unless the generate button already confirmed it.
+  if (_imageBatchConfirmed) {
+    _imageBatchConfirmed = false;
+  } else {
+    const n = storyData.pages ? storyData.pages.length : 0;
+    if (!confirm(
+      `Generate a picture for all ${n} pages?\n\n` +
+      `This makes about ${n} paid AI image generations. Continue?`
+    )) return;
+  }
   stopRequested = false;
   setQueueLoading(true);
   progressWrap.classList.remove('hidden');
@@ -583,9 +647,10 @@ function setQueueLoading(on) {
   // IMAGE phase too — not just the story phase. runDecompose's finally re-enables
   // it when the story is done; the image queue (started right after) re-claims it
   // here and only releases it when all images finish (or generation is stopped).
-  autoGenBtn.disabled = on;
-  autoGenLabel.textContent = on ? 'Generating…' : '⚡ Generate Story and Pictures';
-  autoGenSpinner.classList.toggle('hidden', !on);
+  genBookArtBtn.disabled  = on;
+  genBookTextBtn.disabled = on;
+  // Image generation only happens for illustrated books → spinner on that button.
+  genBookArtSpinner.classList.toggle('hidden', !on);
 }
 
 // ── Aggregate progress ─────────────────────────────────────────────────────
@@ -1168,11 +1233,15 @@ function clearProject({ keepInputs = false } = {}) {
 
   pageGrid.innerHTML      = '';
   step2.classList.add('hidden');
+  step3.classList.add('hidden');
   step4.classList.add('hidden');
   queueBtn.disabled          = true;
   checkReadingsBtn.disabled  = true;
   decomposeHint.textContent  = '';
   checkReadingsHint.textContent = '';
+
+  // Reset the default mode for the next book (illustrated).
+  includeArt = true;
 }
 
 // ── Shared inputs — restore and wire live-sync ─────────────────────────────
@@ -1304,10 +1373,18 @@ async function restoreProject(project) {
   Object.keys(generatedImages).forEach(k => delete generatedImages[k]);
 
   lastCheckApplied = false;
+  // include_art defaults to true (illustrated) when absent — backward compat
+  // with books/projects saved before this feature shipped.
+  includeArt = storyData.include_art !== false;
   renderPages(storyData);
   step2.classList.remove('hidden');
   step4.classList.remove('hidden');
-  queueBtn.disabled         = false;
+  if (storyData.include_art === false) {
+    step3.classList.add('hidden');
+    queueBtn.disabled = true;
+  } else {
+    queueBtn.disabled = false;
+  }
   checkReadingsBtn.disabled = false;
 
   if (project.generated_images) {

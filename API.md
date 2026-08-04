@@ -205,7 +205,7 @@ Re-validates and corrects the reading annotations (pinyin/romaji/romanization) a
 
 Runs the full storybook pipeline server-side and hands back one downloadable, printable PDF: decompose (or an already-built story) → readings error-check → per-page image generation → HTML render → PDF (headless Chromium) → Chinese practice-sheet append → merge. **Asynchronous** — start a job, then poll for status, same pattern as the 3D Figure Maker and the Practice Sheet.
 
-This is the single most expensive endpoint in the app in its worst case (`mode="prompt"`, nothing reused: up to 2 Claude opus calls + up to 19 Gemini image calls, no confirmation gate) and the cheapest in its best case (`mode="existing"`, everything reused, readings check off: zero paid calls, pure local rendering). Design spec: `design-specs/book-pdf-endpoint.md`.
+This is the single most expensive endpoint in the app in its worst case (`mode="prompt"`, illustrated, nothing reused: up to 2 Claude opus calls + up to 19 Gemini image calls, no confirmation gate) and the cheapest in its best case (`mode="existing"`, everything reused, readings check off: zero paid calls, pure local rendering). Pass **`include_art: false`** for a **text-only** book — no images at all, so a from-scratch book costs only the Claude calls (and it may run to 30 pages). Design spec: `design-specs/book-pdf-endpoint.md`.
 
 ## `POST /book-pdf`
 
@@ -218,7 +218,8 @@ This is the single most expensive endpoint in the app in its worst case (`mode="
 | `character` | string | `""` | `prompt` | Same semantics as `/decompose`'s `character`. |
 | `style_suffix` | string | `""` | `prompt` | Same semantics as `/decompose`'s `style_suffix`. |
 | `language` | string | `"zh"` | both | `zh` \| `ja` \| `ko`. For `existing`, must match `story.language` if `story` carries one — `400` on mismatch. |
-| `page_count` | int | `11` | `prompt` | **Must be exactly** `11`, `15`, or `19` — unlike `/decompose`, this is a strict `400` on any other value, not a silent clamp. Ignored for `existing`. |
+| `page_count` | int | `11` | `prompt` | Illustrated books: **must be exactly** `11`, `15`, or `19` (strict `400`, not a silent clamp). Text-only books (`include_art: false`): **`1`–`30`** (`400` outside that range). Ignored for `existing`. |
+| `include_art` | bool | `true` | both | `false` = **text-only book** — no images generated, no Gemini call, full-width text pages instead of image spreads. For `existing` mode the story's own `include_art` is authoritative. |
 | `story` | object | `null` | `existing` | **Required**, must have a non-empty `pages` array. Same shape `/decompose` returns — pass a finished Book Builder project's `story` object verbatim. |
 | `generated_images` | `dict[str, str]` (page number as string key → `[a-f0-9]{32}.png`) | `null` | `existing` | Pages present here with a file that actually exists on disk (`output/images/` or `output/`) are **reused**, skipping generation; everything else is generated. A malformed filename is `400`. |
 | `recheck_readings` | bool \| null | `null` | both | Resolves per-mode: **locked `true`** for `prompt` (not overridable), **`false`** for `existing` unless explicitly set `true`. |
@@ -227,7 +228,7 @@ This is the single most expensive endpoint in the app in its worst case (`mode="
 
 Returns `{"job_id": "<32-hex>"}`.
 
-**Errors:** `400` (unknown `language`; `prompt` mode with neither `concept` nor `character`; `prompt` mode with `page_count` not in `{11,15,19}`; `existing` mode with missing/empty `story.pages`; `language`/`story.language` mismatch; a malformed `generated_images` filename). `503` (Anthropic key needed but missing — any `prompt`-mode job, or `recheck_readings` resolving `true`; Gemini key needed but missing — at least one page isn't reusable). `429` if too many book-pdf jobs are already running (a small `BoundedSemaphore`, not full rate limiting).
+**Errors:** `400` (unknown `language`; `prompt` mode with neither `concept` nor `character`; illustrated `prompt` mode with `page_count` not in `{11,15,19}`, or text-only `prompt` mode with `page_count` outside `1`–`30`; `existing` mode with missing/empty `story.pages`; `language`/`story.language` mismatch; a malformed `generated_images` filename). `503` (Anthropic key needed but missing — any `prompt`-mode job, or `recheck_readings` resolving `true`; Gemini key needed but missing — at least one page isn't reusable **and** the book is illustrated; **text-only books never need a Gemini key**). `429` if too many book-pdf jobs are already running (a small `BoundedSemaphore`, not full rate limiting).
 
 ## `GET /book-pdf/status/{job_id}`
 

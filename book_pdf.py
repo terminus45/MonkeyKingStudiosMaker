@@ -220,6 +220,30 @@ _TEMPLATE = """<!DOCTYPE html>
   .text-en { font-size: 1.9rem; line-height: 1.55; color: #111;
     border-top: 1px solid #e0e0e0; padding-top: 1.25rem; }
 
+  /* Text-only mode: no image column -- the story text becomes a full-width page. */
+  .page-spread--text-only { grid-template-columns: 1fr; }
+  .page-spread--text-only .spread-right {
+    align-items: center; text-align: center; padding: 3.5rem 4rem;
+  }
+  .page-spread--text-only .text-ruby { font-size: 4.5rem; }
+  .page-spread--text-only .text-en   { font-size: 2.3rem; border-top: none; }
+
+  /* Text-only books print PORTRAIT with 4 story pages per sheet (2x2 grid),
+     at a reduced font. Scoped to <body class="text-only"> so illustrated
+     (landscape, one-spread-per-page) books are untouched. */
+  body.text-only .text-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; padding: 7mm;
+  }
+  body.text-only .page-spread--text-only {
+    min-height: 84mm;
+    border: 1px solid #e2e2e2; border-radius: 8px;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  body.text-only .page-spread--text-only .spread-right { padding: 4mm 6mm; gap: .4rem; }
+  body.text-only .text-ruby { font-size: 1.7rem; line-height: 2.15; }
+  body.text-only .text-en   { font-size: .95rem; padding-top: .3rem; }
+  body.text-only .page-num  { font-size: .6rem; }
+
   @media (max-width: 600px) {
     .page-spread { grid-template-columns: 1fr; }
     .cover-title-native { font-size: 2.5rem; }
@@ -227,12 +251,15 @@ _TEMPLATE = """<!DOCTYPE html>
     .text-ruby { font-size: 2.6rem; }
     .text-en { font-size: 1.45rem; }
   }
-  @page { size: A4 landscape; margin: 0; }
+  __PAGE_RULE__
   @media print {
     *, *::before, *::after { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { background: #fff; }
     .book { max-width: 100%; }
-    .cover, .page-spread {
+    .cover { page-break-after: always; break-after: page;
+             page-break-inside: avoid; break-inside: avoid; }
+    /* Illustrated: one spread per page. Text-only: 4-up grid flows naturally. */
+    body:not(.text-only) .page-spread {
       page-break-after: always; break-after: page;
       page-break-inside: avoid; break-inside: avoid;
     }
@@ -240,7 +267,7 @@ _TEMPLATE = """<!DOCTYPE html>
 </style>
 __PRINT_SCRIPT__
 </head>
-<body>
+<body class="__BODY_CLASS__">
 <div class="book">
   <div class="cover">
     __COVER_IMG__
@@ -268,13 +295,32 @@ def build_storybook_html(story: dict, image_data_uris: dict, *, print_mode: bool
     title_html, show_reading_line = render_ruby_title(story, lang_code)
     font_stack = _broadened_font_stack(lang)
 
+    # undefined/true -> illustrated (backward-compat default); only explicit
+    # False selects text-only. Mirrors storybook_print.js `include_art !== false`.
+    illustrated = story.get("include_art", True) is not False
+
     cover_uri = image_data_uris.get(1)
-    cover_img = f'<img src="{cover_uri}" alt="cover" class="cover-img">' if cover_uri else ""
+    cover_img = (
+        f'<img src="{cover_uri}" alt="cover" class="cover-img">'
+        if (illustrated and cover_uri) else ""
+    )
 
     pages = story.get("pages") or []
     spreads = []
     for pg in pages:
         pnum = pg.get("page")
+        if not illustrated:
+            # Text-only: full-width text page, no image column.
+            spreads.append(
+                f'\n    <div class="page-spread page-spread--text-only">\n'
+                f'      <div class="spread-right">\n'
+                f'        <div class="page-num">Page {pnum}</div>\n'
+                f'        {render_ruby_text(pg, lang_code)}\n'
+                f'        <p class="text-en">{esc_html(pg.get("en", ""))}</p>\n'
+                f'      </div>\n'
+                f'    </div>'
+            )
+            continue
         uri = image_data_uris.get(pnum)
         img = (
             f'<img src="{uri}" alt="Page {pnum}" class="page-img">'
@@ -291,6 +337,14 @@ def build_storybook_html(story: dict, image_data_uris: dict, *, print_mode: bool
             f'    </div>'
         )
     page_spread_html = "\n".join(spreads)
+    if not illustrated:
+        # Wrap the text pages in a 2-column grid so 4 fit per portrait sheet.
+        page_spread_html = f'<div class="text-grid">{page_spread_html}\n  </div>'
+
+    # Illustrated: landscape, one spread per page. Text-only: portrait, 4-up.
+    page_rule = ("@page { size: A4 landscape; margin: 0; }" if illustrated
+                 else "@page { size: A4 portrait; margin: 0; }")
+    body_class = "" if illustrated else "text-only"
 
     print_script = ""
     if print_mode:
@@ -308,6 +362,8 @@ def build_storybook_html(story: dict, image_data_uris: dict, *, print_mode: bool
     html = html.replace("__HTML_LANG__", esc_html(lang["html_lang"]))
     html = html.replace("__BOOK_TITLE_EN__", esc_html(story.get("book_title_en", "")))
     html = html.replace("__FONT_STACK__", font_stack)
+    html = html.replace("__PAGE_RULE__", page_rule)
+    html = html.replace("__BODY_CLASS__", body_class)
     html = html.replace("__PRINT_SCRIPT__", print_script)
     html = html.replace("__COVER_IMG__", cover_img)
     html = html.replace("__TITLE_HTML__", title_html)
