@@ -104,7 +104,7 @@ def _safe_style(style: Optional[str]) -> str:
 
 @app.get("/")
 def root():
-    return RedirectResponse(url="/book_builder.html")
+    return RedirectResponse(url="/home.html")
 
 
 @app.get("/health")

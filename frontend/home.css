@@ -1,0 +1,111 @@
+/* home.css — landing page only. Everything else comes from style.css.
+   Spec: design-specs/home-tab.md §11 (this file's exact ownership list).
+   Also loaded by mks_mobile.html, which reuses the hero pattern — keep the
+   .home-* class names stable. */
+
+/* ── Layout ────────────────────────────────────────────────────────────────
+   Hero is vertically centred between the header and the page bottom. The
+   generous bottom padding keeps a landscape phone from clipping the input. */
+.home-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem 4rem;
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  max-width: 560px;
+  width: 100%;
+}
+
+/* ── Mascot ────────────────────────────────────────────────────────────────
+   Fixed-size container so the bounce never reflows what sits below it. */
+.home-robot-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 6rem;
+  height: 6rem;
+}
+
+.home-robot {
+  font-size: 4.5rem;
+  line-height: 1;
+  display: block;
+  animation: homeBounce 1.8s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* The 45–55% plateau gives a short float at the top of the arc, which reads
+   as friendlier than a plain sine bounce. */
+@keyframes homeBounce {
+  0%, 100% {
+    transform: translateY(0);
+    animation-timing-function: ease-in;
+  }
+  45% {
+    transform: translateY(-18px);
+    animation-timing-function: ease-out;
+  }
+  55% {
+    transform: translateY(-18px);
+    animation-timing-function: ease-in;
+  }
+}
+
+/* ── Headline ──────────────────────────────────────────────────────────── */
+.home-headline {
+  font-family: 'Nunito', system-ui, sans-serif;
+  font-size: 1.75rem;
+  font-weight: 900;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+}
+
+/* ── Input ─────────────────────────────────────────────────────────────────
+   The textarea itself inherits background/border/radius/focus-ring from the
+   style.css base rule; only size is overridden here. */
+.home-input-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.home-input-label {
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  display: block;
+  margin-bottom: .25rem;
+  text-align: left;
+}
+
+.home-desc-input {
+  font-size: 1rem;
+  min-height: 4.5rem;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────
+   Stillness is the correct experience here — no substitute animation. */
+@media (prefers-reduced-motion: reduce) {
+  .home-robot { animation: none; }
+}
+
+/* ── Small screens ─────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .home-hero { padding: 1.5rem .5rem 3rem; }
+  .home-robot-container { width: 5rem; height: 5rem; }
+  .home-robot { font-size: 3.5rem; }
+  .home-headline { font-size: 1.35rem; }
+}
