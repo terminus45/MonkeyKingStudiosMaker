@@ -1,8 +1,8 @@
 # MKS Mobile — Design Spec
 
 **Related:** `design-specs/home-tab.md` — the simple web landing page (`home.html`) that this spec does NOT supersede. `mks_mobile.html` is a distinct, additional page (the mobile app body) that reuses the same Home hero pattern. `home.html` remains as the web landing; `mks_mobile.html` is a separate experience.
-**Status:** Spec only — implementation by developer-agent.
-**Branch context:** `feature/figure-maker-settings-gallery-split`
+**Status:** Architect-reviewed 2026-08-14 (see §18) — approved to implement, **blocked on F1** (`home.html`/`home.css` do not exist yet). Corrections from that review are marked inline as "CORRECTED (architect review)".
+**Branch context:** written against `feature/figure-maker-settings-gallery-split` (now merged into PR #2); implement on `feature/gallery-thumbnails-next`.
 
 **Core reframe:** `mks_mobile.html` is a self-contained, touch-friendly launcher for the Monkey King Studios (MKS) mobile app. It greets the user, accepts the primary prompt, and runs all three generation tasks inline on the page without navigation. It is served by the existing FastAPI static mount at `/mks_mobile.html` — no backend route change is required.
 
@@ -103,6 +103,7 @@ The overall feel is calm and kid-appropriate, matching the existing dark-space a
     <!-- Load order: see Section 9 for the authoritative end-of-body load order.
          The importmap lives in <head> (see Section 10); shared_inputs.js (non-module)
          must appear before the ES module so window.SharedInputs is defined. -->
+    <script src="nav_menu.js"></script>
     <script src="shared_inputs.js"></script>
     <script type="module" src="mks_mobile.js"></script>
   </body>
@@ -350,7 +351,11 @@ const inputs = SharedInputs.read();
 const character = inputs.character.trim();
 const story     = inputs.story.trim();
 const draft     = JSON.parse(localStorage.getItem('monkeyking_cg_draft') || '{}');
-const model     = draft.model || 'imagen-4.0-generate-001';
+// CORRECTED (architect review): fallback must be the *fast* model, matching
+// character_generator.js:238. The previous value here was
+// 'imagen-4.0-generate-001' — $0.04/image vs $0.02 — which silently doubled
+// cost for any user who had never opened Settings.
+const model     = draft.model || 'imagen-4.0-fast-generate-001';
 const ar        = draft.ar    || '3:4';
 
 const prompt = story ? `${character}, in a scene: ${story}` : character;
@@ -543,7 +548,9 @@ This is identical to `figure_maker.js`'s `_currentJobId` guard, just renamed for
 
 ### Empty-story behavior — the key design decision
 
-The decompose endpoint requires `concept: str` (mandatory, from `DecomposeRequest`). The Home/mobile page only exposes the `character` field in the visible UI. The `story` and `style` fields come from the shared store (they may be blank).
+**CORRECTED (architect review):** `concept` is **not** mandatory. `DecomposeRequest.concept` is `Optional[str] = ""` (`main.py:217`), and `run_decompose()` has an explicit character-only branch (`main.py:400`) that invents a plot from the character description when `concept` is blank. The endpoint returns 400 only when concept **and** character are both empty. The original text below assumed a mandatory field and worked around it; that workaround is no longer needed.
+
+The Home/mobile page only exposes the `character` field in the visible UI. The `story` and `style` fields come from the shared store (they may be blank).
 
 **Exact payload spec when Story field is blank:**
 
@@ -556,23 +563,30 @@ const character = inputs.character.trim();
 // below is therefore coherent: story (= BB concept) → character → hardcoded default.
 const story     = inputs.story.trim();
 
-// concept falls back to character text if story is empty.
-// This is intentional: character IS the seed for a kid making a figure book.
-const concept   = story || character || 'A fun adventure story';
+// CORRECTED (architect review): do NOT copy `character` into `concept`.
+// A blank concept with a populated character is the supported path and is
+// what run_decompose()'s character-only branch is built for. Copying the
+// text into both fields makes Claude see the protagonist twice — once as
+// story seed, once as character pin — for no benefit. This resolves the
+// open question raised in §17 Flag B.
+const concept   = story || (character ? '' : 'A fun adventure story');
 
 const payload = {
   concept,
-  character: character,     // sent separately so Claude can pin it to every page
+  character: character,     // pinned to every page by the backend
   style_suffix: inputs.style.trim(),
+  include_art: false,       // see below — this page renders text mini-cards only
   // language is NOT sent — the backend applies its default.
   // Language selection is being moved to Settings as separate, future work.
   // This page must not implement or assume a language picker.
 };
 ```
 
-If both `story` AND `character` are blank, `concept` falls back to the literal string `'A fun adventure story'` as a last resort (so the book always starts, never hangs). The fallback is visible in the UX: a hint below the button reads "No prompt? We'll make up an adventure!" when both fields are blank.
+If both `story` AND `character` are blank, `concept` falls back to the literal string `'A fun adventure story'` as a last resort (so the book always starts, never hangs — and avoids the 400 the backend returns when both are empty). The fallback is visible in the UX: a hint below the button reads "No prompt? We'll make up an adventure!" when both fields are blank.
 
-**Page range:** The backend defaults to `min_pages=10, max_pages=10`. The mobile launcher sends no page-range override — it accepts the default 10-page storybook.
+**`include_art` (added since this spec was written):** `DecomposeRequest.include_art` (`main.py:222`) defaults to `True`, which makes Claude write an `image_prompt` for every page. This page never generates images — it renders text mini-cards — so those prompts are tokens paid for and thrown away. Send `include_art: false`. If §17 Flag C's v2 handoff to the full Book Builder is ever built, that path will need `include_art: true` instead, since Book Builder does illustrate.
+
+**Page range — CORRECTED:** the backend default is `page_count = 11` (`main.py:221`), not 10. The mobile launcher sends no override and therefore gets an **11-page** storybook. Any copy or layout that assumes 10 mini-cards must be updated.
 
 **Language:** No `language` field is sent. The backend applies its own default. Language selection is being moved to Settings as separate, future work — this page must not implement or assume a language picker of any kind.
 
@@ -740,9 +754,12 @@ The `<script type="importmap">` block lives in `<head>` (see Section 10 — Full
 The two runtime scripts go at the end of `<body>`:
 
 ```html
+<script src="nav_menu.js"></script>                  <!-- non-module, injects the ☰ toggle -->
 <script src="shared_inputs.js"></script>             <!-- non-module, sets window.SharedInputs -->
 <script type="module" src="mks_mobile.js"></script>  <!-- ES module, deferred automatically -->
 ```
+
+**ADDED (architect review): `nav_menu.js` is mandatory.** It shipped after this spec was written (commit `ebbf622`) and collapses the header links into a ☰ dropdown at ≤860px. It is the one script every page must carry — and its absence would be most visible precisely here, on the page designed for phones, where a six-link nav (§11) would otherwise overflow into a scrolling row. It injects its own button, so no header markup change is needed.
 
 `shared_inputs.js` must appear before the module so `window.SharedInputs` is defined when the module's top-level code executes. Do NOT add `defer` explicitly to the module script — it is implicit. Do NOT place either runtime script in `<head>`.
 
@@ -1071,3 +1088,43 @@ The following decisions involve tradeoffs that warrant scrutiny before implement
 **Rationale:** There is only one image, not a queue of N pages. The SSE handshake adds complexity (EventSource, reconnect logic) with no meaningful UX benefit — the Gemini call resolves in seconds either way. The spinner-then-image reveal is equivalent.
 
 **Flag for architect:** If the developer prefers streaming for consistency with `book_builder.js`'s single-page regen, `POST /generate/stream` is equally valid. The spec is non-prescriptive on this point as long as the same `GenerateRequest` shape is sent.
+
+---
+
+## 18. Architect Review — 2026-08-14
+
+Reviewed against the codebase at `db43435`. Conducted inline (not via `architect-agent`) at the user's direction.
+
+**Verdict: approved to implement, blocked on one dependency (F1).** No architectural objections — the page is additive, same-origin, needs no backend route, and reuses established patterns. Every contract it depends on was checked against the code. The defects below are spec drift, not design flaws: this document was written before commits `ebbf622`/`97befb9` landed.
+
+### Contracts verified correct
+
+| Spec claim | Code | Result |
+|---|---|---|
+| `POST /figure/generate` takes `{prompt, style, story}` | `FigureGenerateRequest`, `main.py:1217` | ✅ exact match |
+| `POST /gallery/image` takes `{filename, prompt, story, style_prompt, model}` | `GalleryImageRequest`, `main.py:847` | ✅ exact match |
+| `POST /generate` accepts `{prompt, style_prompt, provider, gemini_model, gemini_aspect_ratio}` | `GenerateRequest`, `main.py:75` | ✅ Flag F resolved — non-streaming is fine |
+| `SharedInputs.bindFields(map, opts)` + `.read()` exist | `shared_inputs.js:42`, `:9` | ✅ public API as described |
+| `localStorage['monkeyking_fm_job']` job-resume shape | `figure_maker.js` | ✅ portable as claimed |
+
+### Findings
+
+**F1 — Blocking dependency: `home.html` / `home.css` do not exist.**
+§10 links `home.css`; §1 uses `.home-robot`, `.home-headline`, `@keyframes homeBounce`; §11 and AC#1 assert `GET /` redirects to `home.html`. None of that is built — `home-tab.md` is also "Spec only", there is no `frontend/home.css`, and `main.py:107` still redirects to `book_builder.html`. **Resolve by building `home-tab.md` first** (it owns the robot/headline CSS this page reuses), or by inlining those rules into `mks_mobile.css` and amending AC#1. Recommend the former — duplicating the hero CSS across two pages with no build step invites drift.
+
+**F2 — Cost defect: image-model fallback was 2× the intended price.** Corrected in §6. The spec fell back to `imagen-4.0-generate-001` ($0.04/image) while claiming parity with `character_generator.js:238`, which falls back to `imagen-4.0-fast-generate-001` ($0.02). It would have hit every user who never opened Settings.
+
+**F3 — `nav_menu.js` was missing from the script order.** Added in §9. Post-dates this spec.
+
+**F4 — Three stale backend facts.** Corrected in §8: `concept` is optional, not mandatory (this resolves Flag B — stop copying `character` into `concept`); `page_count` defaults to **11**, not 10; and `include_art` now exists and should be explicitly `false`, since this page renders text mini-cards and would otherwise pay for per-page `image_prompt` tokens it discards.
+
+**F5 — Unauthenticated one-tap paid calls (carried forward, not introduced here).** Every endpoint is unauthenticated (`design-specs/security-architecture-backlog.md`), and this page's entire purpose is to put Meshy and Opus jobs one tap from a child's thumb, with no confirmation gate and no per-device rate limit. Today that friction is supplied incidentally by multi-step desktop workflows; a launcher removes it by design. This does not block implementation — the server is loopback-bound and reached over a private tailnet — but it moves the auth/credits phase from "planned" to "should precede any wider exposure". Recommend at minimum a client-side in-flight guard so a button cannot queue duplicate jobs on repeated taps.
+
+### Answers to the §17 open questions
+
+- **A (three stacked result regions):** keep as specified. The 5–10 minute Figure job makes a single-active-panel model actively user-hostile. The close buttons and bounded viewer heights are adequate mitigation.
+- **B (concept/character duplication):** resolved — do not duplicate. See F4 and the correction in §8.
+- **C (v2 handoff via sessionStorage):** endorsed as v2, out of scope now. Note that a v2 handoff must flip `include_art` back to `true`.
+- **D (language):** already resolved in-spec; no action.
+- **E (ES modules in a WebView):** no action while this is a browser page. If a Capacitor shell returns, pin a minimum WebView version then — the import-map dependency is real but hypothetical today.
+- **F (`/generate` vs `/generate/stream`):** use `POST /generate`. Verified the request model accepts the exact payload in §6.
