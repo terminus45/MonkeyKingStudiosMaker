@@ -52,6 +52,12 @@ const modelViewerFullscreen = document.getElementById('modelViewerFullscreen');
 // The .model-viewer-content div is the MAXIMIZED element (wraps header + canvas + footer).
 const modelViewerContent    = modelViewerModal.querySelector('.model-viewer-content');
 
+const imageViewerModal    = document.getElementById('imageViewerModal');
+const imageViewerBackdrop = document.getElementById('imageViewerBackdrop');
+const imageViewerClose    = document.getElementById('imageViewerClose');
+const imageViewerImg      = document.getElementById('imageViewerImg');
+const imageViewerCaption  = document.getElementById('imageViewerCaption');
+
 // ── State ───────────────────────────────────────────────────────────────────
 let activeTab = 'none';
 const panelLoaded = { images: false, books: false, models: false };
@@ -187,6 +193,16 @@ function buildImageCard(img) {
     <div class="book-actions">
       <button
         class="book-action-btn"
+        data-action="view-image"
+        aria-label="View this picture larger"
+      >🔍 View Pic</button>
+      <button
+        class="book-action-btn book-action-btn--figure"
+        data-action="make-figure"
+        aria-label="Make a 3D figure from this picture"
+      >🧸 Make Figure</button>
+      <button
+        class="book-action-btn"
         data-action="reuse-image"
         aria-label="Reuse this prompt in the Character Generator"
       >↺ Reuse</button>
@@ -205,6 +221,8 @@ function buildImageCard(img) {
     </div>
   `;
 
+  card.querySelector('[data-action="view-image"]').addEventListener('click', () => openImageViewer(img));
+  card.querySelector('[data-action="make-figure"]').addEventListener('click', e => makeFigureFromImage(e, img));
   card.querySelector('[data-action="reuse-image"]').addEventListener('click', () => reuseImagePrompt(img));
   card.querySelector('[data-action="delete-image"]').addEventListener('click', e => deleteImage(e, img.id, card));
   return card;
@@ -249,6 +267,119 @@ async function deleteImage(e, imageId, card) {
   }
 }
 
+// ── Make Figure ──────────────────────────────────────────────────────────────
+// Same flow as the Character Generator's "Create Figure" button: start a Meshy
+// image-to-3D job from the saved picture + its original prompt, stash the job id,
+// then hand off to Figure Maker (resumeJobIfAny picks it up).
+//
+// COUPLING NOTE: the localStorage key/shape below must stay in sync with
+// figure_maker.js FM_JOB_KEY / saveFmJob — mirrors character_generator.js.
+async function makeFigureFromImage(e, img) {
+  if (!confirm(
+    'Make a 3D figure from this picture?\n\n' +
+    'This is a paid 3D generation and takes a few minutes. Continue?'
+  )) return;
+  const btn = e.currentTarget;
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Starting…';
+
+  function restoreBtn() {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+
+  try {
+    const res = await fetch(`${API}/figure/generate-from-image`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        filename: img.filename,
+        prompt:   img.prompt || '',
+        style:    img.style_prompt || '',
+        story:    img.story || '',
+      }),
+    });
+
+    if (!res.ok) {
+      let msg;
+      try {
+        const body = await res.json();
+        if (res.status === 503) {
+          msg = 'Meshy key not set — ask a grown-up to add it in Settings (⚙).';
+        } else if (res.status === 404) {
+          msg = "Couldn't find that picture on the server. It may have been cleaned up.";
+        } else if (res.status === 400) {
+          // /figure/generate-from-image only accepts generated portraits
+          // ([a-f0-9]{32}.png); anything else is rejected before Meshy is called.
+          msg = "This picture can't be turned into a figure. Try one made in the Character Generator.";
+        } else {
+          msg = body.detail || `Something went wrong (error ${res.status}).`;
+        }
+      } catch {
+        msg = `Something went wrong (error ${res.status}).`;
+      }
+      restoreBtn();
+      alert(msg);
+      return;
+    }
+
+    const data = await res.json();
+
+    // Carry the saved prompt/story/style into the shared inputs so Figure Maker
+    // shows the context this figure was built from.
+    if (window.SharedInputs) {
+      window.SharedInputs.patch({
+        character: img.prompt || '',
+        story:     img.story || '',
+        style:     img.style_prompt || '',
+      });
+    }
+
+    localStorage.setItem('monkeyking_fm_job', JSON.stringify({
+      job_id:     data.job_id,
+      started_at: Date.now(),
+    }));
+
+    window.location.href = 'figure_maker.html';
+
+  } catch {
+    restoreBtn();
+    alert('Network error — check your connection and try again.');
+  }
+}
+
+// ── Image lightbox ───────────────────────────────────────────────────────────
+// Sizing is pure CSS (85vw wide, capped at 82vh tall) so the picture keeps its
+// aspect ratio and a tall portrait can't run off the bottom of the screen.
+let _imgViewerLastFocus = null;
+
+function openImageViewer(img) {
+  const promptText = img.prompt || '';
+  // Property assignment, not innerHTML — no escaping needed, and no HTML sink.
+  imageViewerImg.src = `${API}/image/${img.filename}`;
+  imageViewerImg.alt = promptText ? `Character portrait: ${promptText}` : 'Character portrait';
+  imageViewerCaption.textContent = promptText;
+  imageViewerCaption.style.display = promptText ? 'block' : 'none';
+
+  _imgViewerLastFocus = document.activeElement;
+  imageViewerModal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  imageViewerClose.focus();
+}
+
+function closeImageViewer() {
+  imageViewerModal.classList.add('hidden');
+  document.body.style.overflow = '';
+  // Drop the src so a large picture isn't held in memory while the modal is shut.
+  imageViewerImg.src = '';
+  if (_imgViewerLastFocus && _imgViewerLastFocus.focus) _imgViewerLastFocus.focus();
+  _imgViewerLastFocus = null;
+}
+
+imageViewerClose.addEventListener('click', closeImageViewer);
+imageViewerBackdrop.addEventListener('click', closeImageViewer);
+
 // ── Books panel ──────────────────────────────────────────────────────────────
 async function loadBooks() {
   panelLoaded.books = true;
@@ -278,9 +409,12 @@ function buildBookCard(book) {
   card.className = 'book-card';
 
   const coverSrc  = book.cover_image ? `${API}/image/${book.cover_image}` : null;
+  const isTextOnly = book.include_art === false;
   const coverHTML = coverSrc
     ? `<img src="${coverSrc}" alt="cover" loading="lazy">`
-    : `<div class="book-cover-placeholder">📖</div>`;
+    : isTextOnly
+      ? `<div class="book-cover-placeholder">📝</div>`
+      : `<div class="book-cover-placeholder">📖</div>`;
 
   const date        = book.saved_at
     ? new Date(book.saved_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -696,6 +830,12 @@ modelViewerClose.addEventListener('click', closeModelViewer);
 modelViewerBackdrop.addEventListener('click', closeModelViewer);
 
 document.addEventListener('keydown', e => {
+  // The image lightbox sits above the 3D modal (z-index 110 vs 100), so it
+  // claims Escape first when open.
+  if (!imageViewerModal.classList.contains('hidden')) {
+    if (e.key === 'Escape') { closeImageViewer(); }
+    return;
+  }
   if (modelViewerModal.classList.contains('hidden')) return;
   // Ctrl+M toggles fullscreen (only once a model is loaded → button visible).
   if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'm' || e.key === 'M')) {

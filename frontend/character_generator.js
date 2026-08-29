@@ -324,6 +324,11 @@ cgUseAsCoverBtn.addEventListener('click', () => {
 cgCreateFigureBtn.addEventListener('click', async () => {
   if (!currentFilename) return; // guard: button should be disabled if no image
 
+  if (!confirm(
+    'Create a 3D figure from this picture?\n\n' +
+    'This is a paid 3D generation and takes a few minutes. Continue?'
+  )) return;
+
   hideError();
 
   // Enter in-flight state

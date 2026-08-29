@@ -26,3 +26,11 @@ This is a single-process FastAPI server (`main.py`) plus a static vanilla-JS fro
 5. Summarize: what was tested, what passed/failed, coverage gaps, and any bugs found (hand these back to product-manager / developer-agent — do not fix them yourself).
 
 If the change isn't meaningfully testable with the available tools (e.g. it depends on a live third-party 3D/image service), say that plainly and propose the closest practical check (mock the boundary, assert request shape, smoke-test reachable stages) rather than building something that can't actually run.
+
+## ⚠️ Data safety — never delete or write test files into user content
+
+The directories `output/` (incl. `output/images/`, `output/figures/`, `output/practice/`, `output/book_pdfs/`) and `gallery/` hold **irreplaceable, gitignored user content** (generated images, 3D models, saved books) — not recoverable from git.
+
+- **Every test and its cleanup MUST use a temp dir.** Monkeypatch `OUTPUT_DIR`/`IMAGES_DIR`/`FIGURES_DIR`/`BOOK_PDF_DIR`/`PRACTICE_DIR`/`GALLERY_DIR` (or the config attrs) to a `tmp_path`/`tempfile.mkdtemp()`. A test must **never** create, write, or delete files inside the real `output/` or `gallery/`.
+- **Never** run a wildcard/bulk delete against these paths — no `rm … output/*.png`, `rm -rf`, `git clean`, `find … -delete`, `shutil.rmtree`/`os.remove` on real content dirs. "Clean up temp artifacts" means the temp dir only; remove any stray real file **by exact full name**, never a glob. (A past `rm -f output/*.png` cleanup wiped every saved image — never again.)
+- Before running a test that hits `POST`/generation endpoints, verify it is pointed at a temp dir so it can't write into (or trigger cleanup of) real content. If you can't guarantee isolation, **stop and ask**.

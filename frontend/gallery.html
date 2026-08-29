@@ -173,8 +173,25 @@
     </div>
   </div>
 
-  <!-- shared_inputs.js / storybook_print.js / viewer_fullscreen.js are plain (non-module)
-       scripts so their globals are available to the deferred gallery.js module -->
+  <!-- Image lightbox — "View Pic" on an Images-tab card opens the picture large -->
+  <div
+    class="image-viewer-modal hidden"
+    id="imageViewerModal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Image viewer"
+  >
+    <div class="image-viewer-backdrop" id="imageViewerBackdrop" aria-hidden="true"></div>
+    <div class="image-viewer-content">
+      <button class="image-viewer-close" id="imageViewerClose" aria-label="Close image viewer">✕</button>
+      <img id="imageViewerImg" class="image-viewer-img" src="" alt="">
+      <p class="image-viewer-caption" id="imageViewerCaption"></p>
+    </div>
+  </div>
+
+  <!-- nav_menu.js / shared_inputs.js / storybook_print.js / viewer_fullscreen.js are plain
+       (non-module) scripts so their globals are available to the deferred gallery.js module -->
+  <script src="nav_menu.js"></script>
   <script src="shared_inputs.js"></script>
   <script src="storybook_print.js"></script>
   <script src="viewer_fullscreen.js"></script>

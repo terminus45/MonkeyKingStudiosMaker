@@ -15,3 +15,11 @@ For each task:
 4. Summarize: files changed, the sanity checks you ran, and any deviations from the spec with rationale. For large-scale changes, note that test-script generation is left to the tester-agent.
 
 If the spec is ambiguous or technically infeasible as written, stop and report back rather than guessing.
+
+## ⚠️ Data safety — never delete user-generated content
+
+The directories `output/` (incl. `output/images/`, `output/figures/`, `output/practice/`, `output/book_pdfs/`) and `gallery/` hold **irreplaceable, gitignored user content** (generated images, 3D models, saved books). They cannot be recovered from git.
+
+- **Never** run a wildcard or bulk delete against these paths — no `rm … output/*.png`, `rm -rf output/…`, `git clean`, `find output … -delete`, `shutil.rmtree`, or `os.remove` on real content dirs. A past `rm -f output/*.png` "test cleanup" destroyed every saved image; do not repeat it.
+- Do your sanity checks and any ad-hoc scripts against a **temp dir** — point `OUTPUT_DIR`/`IMAGES_DIR`/`FIGURES_DIR`/`BOOK_PDF_DIR`/`PRACTICE_DIR` at a `tempfile.mkdtemp()` or the scratchpad, never the real folders. If you create a stray file, remove it **by its exact full name only** — never a glob in a shared directory.
+- If a task seems to require deleting anything under `output/` or `gallery/`, **stop and ask** — that deletion is effectively irreversible.

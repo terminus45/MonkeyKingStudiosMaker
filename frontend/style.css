@@ -95,6 +95,84 @@ header {
 .nav-link:hover  { background: rgba(255,255,255,.10); color: #ffffff; }
 .nav-link.active { background: var(--mustard); color: #0a0b1a; }
 
+/* ── Mobile hamburger nav ──
+   The ☰ button is injected by nav_menu.js (so the six hand-copied <header>
+   blocks stay byte-identical). It is display:none above the breakpoint, where
+   .header-nav remains the normal inline link row. Open/closed state is the
+   `nav-open` class on <header> — nav_menu.js sets no inline styles, so the
+   desktop layout is this media query's business alone. */
+.nav-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  color: rgba(255,255,255,.85);
+  cursor: pointer;
+  padding: 0;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.nav-toggle:hover { background: rgba(255,255,255,.10); color: #ffffff; }
+.nav-toggle:focus-visible { outline: 2px solid var(--mustard); outline-offset: 2px; }
+
+/* Swap ☰ for ✕ while open — both icons ship in the button, CSS picks one. */
+.nav-toggle-close { display: none; }
+header.nav-open .nav-toggle-bars  { display: none; }
+header.nav-open .nav-toggle-close { display: block; }
+header.nav-open .nav-toggle {
+  background: rgba(255,255,255,.12);
+  color: #ffffff;
+  border-color: rgba(255,255,255,.30);
+}
+
+/* Keep 860px in sync with BREAKPOINT in nav_menu.js. Chosen so tablets in
+   portrait (768px) also get the menu — four emoji labels like
+   "🎭 Character Generator" overflow well before the phone widths. */
+@media (max-width: 860px) {
+  .nav-toggle { display: flex; }
+
+  /* Title absorbs the slack so the status dot + ☰ sit hard right. */
+  .header-title { flex: 1; min-width: 0; }
+
+  /* .header-nav stops being an inline row and becomes a dropdown panel.
+     Absolute against <header> (position:sticky makes it a positioned
+     ancestor), so it spans the full header width, not .header-inner's
+     max-width — edge-to-edge on a phone. */
+  .header-nav {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    display: none;
+    flex: none;
+    flex-direction: column;
+    gap: .15rem;
+    overflow: visible;
+    background: #0f1129;
+    border-bottom: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 12px 24px rgba(0,0,0,.45);
+    padding: .4rem .75rem .6rem;
+  }
+  header.nav-open .header-nav { display: flex; }
+
+  /* Roomier tap targets once the links are stacked. */
+  .nav-link {
+    font-size: .95rem;
+    border-radius: 12px;
+    padding: .7rem .9rem;
+    min-height: 48px;
+  }
+}
+
+/* Very narrow phones: drop the wordmark, keep the 🤖 glyph. */
+@media (max-width: 400px) {
+  .title-en { display: none; }
+}
+
 .server-status {
   display: flex;
   align-items: center;
@@ -323,6 +401,17 @@ input[type="range"]::-webkit-slider-thumb {
 .generate-btn:hover:not(:disabled) { background: rgba(255,107,53,.80); }
 .generate-btn:active:not(:disabled) { background: rgba(255,107,53,.70); }
 .generate-btn:disabled { opacity: .40; cursor: not-allowed; }
+
+/* Violet variant of .generate-btn — a DISTINCT color from the orange default so
+   the two are never confused. Used by "Create Figure" (Character Generator) and
+   "Generate Book with Pictures" (Book Builder). Shared here since >1 page uses it. */
+.generate-btn--figure {
+  background: #7b61ff;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+.generate-btn--figure:hover:not(:disabled)  { background: #6a4ff0; }
+.generate-btn--figure:active:not(:disabled) { background: #5b40e0; }
 
 /* ── Settings row ── */
 .settings-row {

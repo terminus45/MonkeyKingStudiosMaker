@@ -128,6 +128,10 @@
 .book-action-btn:hover { background: rgba(255,255,255,.20); color: #ffffff; }
 .book-action-btn.danger:hover { background: rgba(229,72,77,.15); border-color: rgba(229,72,77,.70); color: #e5484d; }
 .book-action-btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Make Figure is a costly (3D) generation — flag it with the same violet as the
+   Create Figure / Build my figure! buttons (>10c generations use this style). */
+.book-action-btn--figure { background: #7b61ff; border-color: transparent; color: #ffffff; }
+.book-action-btn--figure:hover { background: #6a4ff0; color: #ffffff; }
 
 /* ── Tab bar ── */
 .gallery-tabs {
@@ -410,7 +414,85 @@
   border-top: none;
 }
 
+/* ── Image lightbox ("View Pic") ──
+   The picture is scaled to 85% of the page width, then capped by the viewport
+   height so a tall portrait can never overflow the screen. width:auto + the
+   two max-* rules let the browser pick whichever constraint binds first while
+   preserving the image's aspect ratio. */
+.image-viewer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.image-viewer-modal.hidden { display: none; }
+.image-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10,11,26,.85);
+  backdrop-filter: blur(4px);
+}
+.image-viewer-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .75rem;
+  max-width: 85vw;
+}
+.image-viewer-img {
+  display: block;
+  width: auto;
+  max-width: 85vw;
+  max-height: 82vh;
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+  background: #0f1129;
+}
+.image-viewer-caption {
+  margin: 0;
+  max-width: 85vw;
+  text-align: center;
+  font-size: .85rem;
+  line-height: 1.45;
+  color: rgba(255,255,255,.72);
+  word-break: break-word;
+}
+.image-viewer-close {
+  position: absolute;
+  top: -.5rem;
+  right: -.5rem;
+  z-index: 2;
+  background: rgba(15,17,41,.92);
+  border: 1px solid rgba(255,255,255,.22);
+  color: #ffffff;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 999px;
+  min-width: 40px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.image-viewer-close:hover {
+  background: rgba(35,38,80,.95);
+  border-color: rgba(255,255,255,.42);
+}
+
 /* ── Responsive ── */
+@media (max-width: 600px) {
+  /* Reclaim the side gutters on a phone — 85% of a 390px screen is too small. */
+  .image-viewer-content,
+  .image-viewer-img,
+  .image-viewer-caption { max-width: 94vw; }
+  .image-viewer-close { top: -.25rem; right: -.25rem; }
+}
 @media (max-width: 600px) {
   .gallery-book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-main { padding: 1rem .75rem 3rem; }
