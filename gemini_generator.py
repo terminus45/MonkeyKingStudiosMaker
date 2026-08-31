@@ -9,16 +9,45 @@ from PIL import Image
 from config import IMAGES_DIR
 
 
-def save_image(image: Image.Image, filename: str) -> str:
+def save_image(image: Image.Image, filename: str, meta: Optional[dict] = None) -> str:
     """Save a PIL Image to IMAGES_DIR. Returns the full path.
 
     (Reads resolve from IMAGES_DIR with a fallback to OUTPUT_DIR, so images
     written here are found everywhere the app serves or reuses them.)
+
+    When `meta` is given it is embedded as an iTXt chunk under the key
+    "mk_meta" — the recipe travels *with the file*, surviving download and
+    re-upload, the same convention A1111/ComfyUI use for theirs. Failure to
+    attach metadata must never fail the save: the image is the product, the
+    recipe is a bonus.
     """
     os.makedirs(IMAGES_DIR, exist_ok=True)
     path = os.path.join(IMAGES_DIR, filename)
-    image.save(path)
+    pnginfo = None
+    if meta:
+        try:
+            import json as _json
+            from PIL.PngImagePlugin import PngInfo
+            pnginfo = PngInfo()
+            pnginfo.add_itxt("mk_meta", _json.dumps(meta, ensure_ascii=False))
+        except Exception:
+            pnginfo = None
+    if pnginfo is not None:
+        image.save(path, pnginfo=pnginfo)
+    else:
+        image.save(path)
     return path
+
+
+def read_image_metadata(path: str) -> Optional[dict]:
+    """Read the embedded "mk_meta" chunk back from a PNG, or None."""
+    try:
+        import json as _json
+        with Image.open(path) as im:
+            raw = (im.text or {}).get("mk_meta")
+        return _json.loads(raw) if raw else None
+    except Exception:
+        return None
 
 # `name` is display-only (shown in the Settings dropdown); the per-image cost is
 # appended in parentheses. `id`/`type` drive generation/routing — do not append there.

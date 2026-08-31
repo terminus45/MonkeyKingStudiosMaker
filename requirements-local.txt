@@ -1,0 +1,22 @@
+# Optional extras for on-device image generation.
+#
+# NOT installed by requirements.txt, and deliberately so: commit 7742eab
+# removed this stack after a security audit found 41 CVEs across 11 packages
+# (down to 20 across 6 once it was gone), and 9341b1d removed it so the app
+# would boot with no heavy ML dependencies and no first-run model download.
+#
+# Install only if you want local generation:
+#     pip install -r requirements-local.txt
+#
+# The app runs fine without these — local_generator.py imports them inside
+# functions, and Settings reports the local section as unavailable.
+#
+# You also need at least one .safetensors checkpoint in LOCAL_MODELS_DIR
+# (default ./models). .ckpt files are ignored on purpose: loading one is a
+# pickle deserialisation, i.e. arbitrary code execution.
+
+torch>=2.2.0
+diffusers>=0.27.0
+transformers>=4.38.0
+accelerate>=0.27.0
+safetensors>=0.4.0
