@@ -210,3 +210,89 @@ Phase 5 needs 1–3 but not 4. If Refine is the priority, 1 → 2 → 3 → 5 is
 - **The hires pass consumes randomness.** Reproduction must seed both passes, not just the base one. Simplest correct approach: derive the second pass's generator from the same seed deterministically.
 - **Prompt drift via config.** If `LOCAL_NEGATIVE_PROMPT` changes in `.env`, an old image's stored `negative_final` still reproduces correctly — but only because it was stored composed. This is the concrete reason for the ★ on that row.
 - **PNG metadata is not private.** Prompts get embedded in files a user may share. Worth a Settings toggle before this is ever more than a local single-user app.
+
+---
+
+## Refine compatibility — plan (2026-08-31)
+
+**Problem (user-reported):** refinement across models doesn't always work. Two
+verified failure classes:
+
+1. **Turbo step collapse (mechanical).** img2img runs `int(strength × steps)`
+   denoising steps, and per-model settings give turbo models `steps: 8` — so
+   Tweak (0.25) runs **2 steps** and Change (0.45) runs **3**. Two steps of
+   denoising cannot execute an instruction; output is either the input back or
+   artifacts. At the env default 35 the same buttons run 8/15/24 steps, which
+   is why refine worked before per-model settings landed.
+2. **Model mismatch (selection).** `/refine/job` refines with whatever model
+   the CG draft currently holds, not the model that made the image. Cross
+   family (SDXL image → SD 1.5 refiner) resamples 1024-class art down to 512
+   and redraws it in another family's style; cross *style* inside a family
+   (watercolor source → Juggernaut photoreal, natural-language source →
+   Animagine's tag dialect) drifts hard at Change/Reimagine strengths.
+
+### Fixes, in dependency order
+
+**F1 — actual-steps floor for refine (small, mechanical, do first).**
+`refine()` computes `steps` so that the *actual* step count clears a floor:
+`steps = max(model_steps, ceil(MIN_REFINE_ACTUAL / strength))` with
+`MIN_REFINE_ACTUAL = 6`. For turbo at Tweak that means 24 scheduled → 6
+actual (~28 s, acceptable); non-turbo models are unaffected (35 × 0.25 = 8
+already clears the floor). Progress totals and metadata record the effective
+values, as they already do.
+
+**F2 — record `kind` in generation metadata.** `meta` today stores `model_id`
+but not the architecture family. Add `"kind": "sd15" | "sdxl"` (already
+derived at generation time via `_resolve`). For legacy images, derive at
+refine time from the source model's id when it still resolves, else fall back
+to image dimensions (>700 px long edge ⇒ sdxl-class).
+
+**F3 — compatibility ranking.** A pure function
+`refine_candidates(source_meta) -> [{model_id, tier}]` over discovered
+models:
+
+| Tier | Rule | Treatment |
+|---|---|---|
+| `same-model` | id == source's | default choice |
+| `same-family` | same `kind`, different checkpoint | allowed, listed |
+| `cross-family` | kind differs | **rejected by default**; `force: true` overrides |
+
+Tie-breaks within `same-family`: non-`cache_unsafe` first (no reload tax),
+then alphabetical. Style/prompt-dialect mismatch (Animagine's tags) is a
+*ranking hint*, not a block — sidecars may declare `"prompt_style":
+"natural" | "tags"`; differing style demotes below matching ones.
+
+**F4 — server-side selection.** `RefineRequest.model_id` becomes optional.
+Omitted → the server picks the top-ranked candidate (source's own model when
+available — the common case and the correct default). Supplied → validated
+against the ranking; `cross-family` without `force` is a 400 naming the
+mismatch ("this image was made with an SDXL model; local:dreamshaper_8 is
+SD 1.5 — pass force to override"). New endpoint
+`GET /image/{filename}/refine-options` returns the ranked list for the UI.
+
+**F5 — frontend.** The refine panel shows which model will run ("Refining
+with DreamShaper XL Turbo — the model that made this image") instead of
+silently using the draft model, with a compact selector of the other
+compatible options. The current behaviour — cloud model selected in Settings
+disables refine entirely — is replaced by: refine works whenever *any*
+compatible local model exists, because the server no longer depends on the
+draft. (This also fixes a latent oddity: switching Settings to a cloud model
+today kills refine for images made locally minutes earlier.)
+
+### What "saved info to identify which models work well" means later
+
+The static rules above encode what we know today. The metadata already
+records every refine's `{instruction, strength, parent}` plus the model used;
+a future feedback loop could mine gallery lineage (refines the user kept vs
+immediately re-refined or deleted) to *learn* per-pair quality. Out of scope
+now — noted so the schema keeps recording what that would need.
+
+### Verification
+
+- Unit: floor math (turbo Tweak → ≥6 actual), ranking tiers, cross-family
+  400 + force override, legacy-image kind fallback, options endpoint shape.
+- Live: (a) turbo-made image + Tweak actually applies the instruction now;
+  (b) SDXL-made image refined with SD 1.5 selected in Settings → server
+  auto-picks the SDXL source model, panel says so; (c) cross-family force
+  path renders; (d) regenerate of an old refine stays bit-identical (the
+  standing invariant — F1 changes effective steps for NEW refines only).
