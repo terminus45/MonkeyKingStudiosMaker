@@ -219,6 +219,12 @@
             placeholder="make the cape blue and add a hat…"
             aria-describedby="cgRefineHint"
           ></textarea>
+          <!-- Only refine-compatible models appear here (from /refine-options);
+               pre-selected: the model that made the image. -->
+          <div class="cg-refine-model-row">
+            <label for="cgRefineModel" class="cg-refine-model-label">with</label>
+            <select id="cgRefineModel" aria-label="Model to refine with"></select>
+          </div>
           <div class="cg-refine-actions">
             <button class="settings-btn" id="cgRefineTweak"    data-strength="0.25"
                     title="Small details — keeps the composition">Tweak</button>

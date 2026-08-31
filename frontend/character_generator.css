@@ -207,3 +207,8 @@
 .cg-refine-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .cg-refine-actions .settings-btn:disabled { opacity: .4; cursor: not-allowed; }
 .cg-refine-panel .hint a { color: var(--mustard); }
+
+/* Refine model dropdown */
+.cg-refine-model-row { display: flex; align-items: center; gap: .5rem; }
+.cg-refine-model-label { font-size: .78rem; color: var(--muted); }
+.cg-refine-model-row select { flex: 1; min-width: 0; }

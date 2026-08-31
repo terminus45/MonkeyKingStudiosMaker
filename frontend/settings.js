@@ -408,6 +408,32 @@ settingsPages.addEventListener('change', () => {
   showPagesSavedChip();
 });
 
+// ── Gear = back, while already on Settings ───────────────────────────────────
+// On every other page the gear opens Settings; here it would just reload the
+// page. Turn it into "return to where you came from": the referrer when it is
+// a same-origin non-Settings page, else history, else Home. Behaviour lives
+// here rather than in the header markup so the hand-copied <header> block
+// stays byte-identical across pages.
+(() => {
+  const gear = document.querySelector('.settings-gear');
+  if (!gear) return;
+  gear.setAttribute('aria-label', 'Back to previous page');
+  gear.title = 'Back';
+  gear.addEventListener('click', (e) => {
+    e.preventDefault();
+    let ref = null;
+    try {
+      const u = new URL(document.referrer);
+      if (u.origin === location.origin && !u.pathname.endsWith('/settings.html')) {
+        ref = document.referrer;
+      }
+    } catch { /* no or opaque referrer */ }
+    // No history.back() fallback: from a fresh tab it exits to the browser's
+    // new-tab page, which reads as the gear breaking out of the app entirely.
+    location.href = ref || 'home.html';
+  });
+})();
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();

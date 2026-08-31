@@ -210,3 +210,114 @@ Phase 5 needs 1–3 but not 4. If Refine is the priority, 1 → 2 → 3 → 5 is
 - **The hires pass consumes randomness.** Reproduction must seed both passes, not just the base one. Simplest correct approach: derive the second pass's generator from the same seed deterministically.
 - **Prompt drift via config.** If `LOCAL_NEGATIVE_PROMPT` changes in `.env`, an old image's stored `negative_final` still reproduces correctly — but only because it was stored composed. This is the concrete reason for the ★ on that row.
 - **PNG metadata is not private.** Prompts get embedded in files a user may share. Worth a Settings toggle before this is ever more than a local single-user app.
+
+---
+
+## Refine compatibility — plan (2026-08-31)
+
+**Problem (user-reported):** refinement across models doesn't always work. Two
+verified failure classes:
+
+1. **Turbo step collapse (mechanical).** img2img runs `int(strength × steps)`
+   denoising steps, and per-model settings give turbo models `steps: 8` — so
+   Tweak (0.25) runs **2 steps** and Change (0.45) runs **3**. Two steps of
+   denoising cannot execute an instruction; output is either the input back or
+   artifacts. At the env default 35 the same buttons run 8/15/24 steps, which
+   is why refine worked before per-model settings landed.
+2. **Model mismatch (selection).** `/refine/job` refines with whatever model
+   the CG draft currently holds, not the model that made the image. Cross
+   family (SDXL image → SD 1.5 refiner) resamples 1024-class art down to 512
+   and redraws it in another family's style; cross *style* inside a family
+   (watercolor source → Juggernaut photoreal, natural-language source →
+   Animagine's tag dialect) drifts hard at Change/Reimagine strengths.
+
+### Fixes, in dependency order
+
+**F1 — actual-steps floor for refine (small, mechanical, do first).**
+`refine()` computes `steps` so that the *actual* step count clears a floor:
+`steps = max(model_steps, ceil(MIN_REFINE_ACTUAL / strength))` with
+`MIN_REFINE_ACTUAL = 6`. For turbo at Tweak that means 24 scheduled → 6
+actual (~28 s, acceptable); non-turbo models are unaffected (35 × 0.25 = 8
+already clears the floor). Progress totals and metadata record the effective
+values, as they already do.
+
+**F2 — record `kind` in generation metadata.** `meta` today stores `model_id`
+but not the architecture family. Add `"kind": "sd15" | "sdxl"` (already
+derived at generation time via `_resolve`). For legacy images, derive at
+refine time from the source model's id when it still resolves, else fall back
+to image dimensions (>700 px long edge ⇒ sdxl-class).
+
+**F3 — compatibility ranking.** A pure function
+`refine_candidates(source_meta) -> [{model_id, tier}]` over discovered
+models:
+
+| Tier | Rule | Treatment |
+|---|---|---|
+| `same-model` | id == source's | default choice |
+| `same-family` | same `kind`, different checkpoint | allowed, listed |
+| `cross-family` | kind differs | **rejected by default**; `force: true` overrides |
+
+Tie-breaks within `same-family`: non-`cache_unsafe` first (no reload tax),
+then alphabetical. Style/prompt-dialect mismatch (Animagine's tags) is a
+*ranking hint*, not a block — sidecars may declare `"prompt_style":
+"natural" | "tags"`; differing style demotes below matching ones.
+
+**F4 — compatibility table, generated and saved (revised: no server auto-pick).**
+A persisted table at `models/.refine_compat.json`, generated from the model
+inventory + rules (F3) and regenerated lazily whenever the model set or any
+sidecar changes (keyed on a checksum of both). Shape:
+
+```jsonc
+{
+  "generated_at": "...",
+  "inputs_checksum": "...",
+  "models": { "local:x": {"kind": "sdxl", "prompt_style": "natural", "cache_unsafe": true} },
+  "pairs":  { "local:sourceA": [
+      {"model_id": "local:sourceA", "tier": "same-model"},
+      {"model_id": "local:b",       "tier": "same-family"} ] },
+  "overrides": { "allow": [], "ban": [] }   // hand-editable; survive regeneration
+}
+```
+
+The `overrides` block is why the table is *saved* rather than computed on the
+fly: pair-level allow/ban entries persist across regenerations, giving both a
+manual escape hatch (an API user who wants a cross-family pair adds an
+`allow`) and the future landing spot for learned quality data. There is no
+`force` request flag — one mechanism, in the table.
+
+`RefineRequest.model_id` stays **required**. The server never picks a model;
+it only *validates* the explicit choice against the table (unlisted pair →
+400 naming the mismatch — defence for direct API callers, since the dropdown
+already constrains UI users). `GET /image/{filename}/refine-options` reads
+the table and returns the ranked compatible list for the image's source
+model (kind-fallback for legacy images per F2).
+
+**F5 — frontend: a model dropdown in the refine panel (revised).** The panel
+gains a compact `<select>` populated from `/refine-options` whenever an image
+is displayed — only compatible models appear, labelled with their picker
+names. **Pre-selected: the image's own source model** when present (a UI
+default the user can see and change — distinct from the server choosing
+invisibly). No compatible local model → the panel explains why instead of
+offering a broken refine. The Settings draft model no longer plays any role
+in refinement.
+
+### What "saved info to identify which models work well" means later
+
+The static rules above encode what we know today. The metadata already
+records every refine's `{instruction, strength, parent}` plus the model used;
+a future feedback loop could mine gallery lineage (refines the user kept vs
+immediately re-refined or deleted) to *learn* per-pair quality. Out of scope
+now — noted so the schema keeps recording what that would need.
+
+### Verification
+
+- Unit: floor math (turbo Tweak → ≥6 actual), ranking tiers, cross-family
+  400 + force override, legacy-image kind fallback, options endpoint shape.
+- Unit additions: table regeneration on model-set/sidecar change, override
+  persistence across regenerations, unlisted-pair 400.
+- Live: (a) turbo-made image + Tweak actually applies the instruction now;
+  (b) SDXL-made image: dropdown lists only SDXL models, pre-selects the
+  source model, and the Settings draft is irrelevant; (c) an `allow`
+  override makes a cross-family pair refinable; (d) regenerate of an old
+  refine stays bit-identical (the standing invariant — F1 changes
+  effective steps for NEW refines only).

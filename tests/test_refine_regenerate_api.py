@@ -98,3 +98,46 @@ def test_regenerate_rejects_a_vanished_model(client, monkeypatch):
     r = client.post("/regenerate/job", json={"filename": "0" * 32 + ".png"})
     assert r.status_code == 400
     assert "no longer available" in r.json()["detail"]
+
+
+def test_refine_rejects_incompatible_pair(client, monkeypatch):
+    """model_id is validated against the compatibility table — the server
+    never picks, but it does refuse an unlisted pair with a message that
+    names the mismatch and the override mechanism."""
+    monkeypatch.setattr(main, "_resolve_image_path", lambda f: "/tmp/x.png")
+    monkeypatch.setattr(main.gemini_generator, "read_image_metadata",
+                        lambda p: {"backend": "local", "kind": "sdxl",
+                                   "model_id": "local:src_xl"})
+    monkeypatch.setattr(main.image_backends, "backend_for",
+                        lambda m: "local" if m.startswith("local:") else "gemini")
+    monkeypatch.setattr(main.refine_compat, "kind_for_image", lambda m, p: "sdxl")
+    monkeypatch.setattr(main.refine_compat, "candidates",
+                        lambda mid, kind: [{"model_id": "local:src_xl", "tier": "same-model"}])
+
+    r = client.post("/refine/job", json={
+        "filename": "0" * 32 + ".png", "instruction": "add a hat",
+        "model_id": "local:some_sd15_model"})
+    assert r.status_code == 400
+    assert "not refine-compatible" in r.json()["detail"]
+    assert "overrides.allow" in r.json()["detail"]
+
+
+def test_refine_options_endpoint_shape(client, monkeypatch):
+    monkeypatch.setattr(main, "_resolve_image_path", lambda f: "/tmp/x.png")
+    monkeypatch.setattr(main.gemini_generator, "read_image_metadata",
+                        lambda p: {"backend": "local", "kind": "sdxl",
+                                   "model_id": "local:src_xl"})
+    monkeypatch.setattr(main.refine_compat, "kind_for_image", lambda m, p: "sdxl")
+    monkeypatch.setattr(main.refine_compat, "candidates",
+                        lambda mid, kind: [{"model_id": "local:src_xl", "tier": "same-model"},
+                                           {"model_id": "local:other_xl", "tier": "same-family"}])
+    monkeypatch.setattr(main.image_backends, "list_models",
+                        lambda: [{"id": "local:src_xl", "name": "Source XL", "backend": "local"},
+                                 {"id": "local:other_xl", "name": "Other XL", "backend": "local"}])
+
+    r = client.get(f"/image/{'0'*32}.png/refine-options")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["source_model"] == "local:src_xl"
+    assert [o["model_id"] for o in d["options"]] == ["local:src_xl", "local:other_xl"]
+    assert d["options"][0]["name"] == "Source XL"
