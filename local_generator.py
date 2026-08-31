@@ -70,6 +70,68 @@ _pipe_lock = threading.Lock()
 _SDXL_MIN_BYTES = 4 * 1024 ** 3
 
 
+# ── Per-model settings ───────────────────────────────────────────────────────
+# Steps/guidance/sampler are MODEL properties, not app properties: a Turbo
+# distill wants ~8 steps at guidance 2 and produces burned output at 35/7,
+# while a photoreal fine-tune wants the opposite. Settings resolve in three
+# tiers, highest first:
+#   1. explicit per-call override (regeneration's stored recipe — untouchable)
+#   2. per-model settings (this block)
+#   3. env config (LOCAL_STEPS etc.)
+#
+# Sources, merged with the sidecar winning: a name heuristic (zero-config
+# floor for anything with turbo/lightning/hyper in the filename) and an
+# optional sidecar JSON next to the checkpoint (<stem>.json). Sidecars carry
+# no paths and are validated/clamped; a malformed one is treated as absent —
+# discovery must never break on a bad JSON file. Trust model: whoever can
+# write ./models already controls what gets executed as a model.
+
+_TURBO_HINTS = ("turbo", "lightning", "hyper")
+
+# key -> (validator, clamp) — anything else in a sidecar is ignored.
+_SIDECAR_KEYS = {
+    "steps":         lambda v: int(v) if isinstance(v, (int, float)) and 1 <= v <= 150 else None,
+    "guidance":      lambda v: float(v) if isinstance(v, (int, float)) and 0 <= v <= 30 else None,
+    "sampler":       lambda v: v if isinstance(v, str) and v.strip().lower() in SAMPLERS else None,
+    "hires_scale":   lambda v: float(v) if isinstance(v, (int, float)) and 0 <= v <= 4 else None,
+    "hires_denoise": lambda v: float(v) if isinstance(v, (int, float)) and 0 <= v <= 1 else None,
+    "label":         lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
+    "negative":      lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
+    "cache_unsafe":  lambda v: bool(v) if isinstance(v, bool) else None,
+}
+
+
+def _model_settings(model_id: str) -> dict:
+    """Effective per-model settings: name heuristic, overlaid by sidecar JSON."""
+    settings: dict = {}
+    try:
+        path, _kind = _resolve(model_id)
+    except ValueError:
+        return settings
+
+    stem = os.path.basename(path)[:-len(".safetensors")]
+    if any(h in stem.lower() for h in _TURBO_HINTS):
+        settings.update({"steps": 8, "guidance": 2.0})
+
+    sidecar = os.path.join(LOCAL_MODELS_DIR, stem + ".json")
+    try:
+        import json
+        with open(sidecar, encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            for key, validate in _SIDECAR_KEYS.items():
+                if key in raw:
+                    v = validate(raw[key])
+                    if v is not None:
+                        settings[key] = v
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass  # malformed sidecar == no sidecar
+
+    return settings
+
+
 # Models that have NaN-poisoned a cached run. Isolation testing showed the
 # corruption survives scheduler replacement AND torch.mps.empty_cache() — only
 # a full reload clears it. So after the first poisoning, a model is loaded
@@ -185,10 +247,22 @@ def discover_models() -> list[dict]:
     models = []
     for model_id, filename, size in _checkpoints():
         kind = "sdxl" if size >= _SDXL_MIN_BYTES else "sd15"
-        label = model_id.split(":", 1)[1].replace("_", " ")
+        ms = _model_settings(model_id)
+
+        # A sidecar can pre-declare a model cache-unsafe (e.g. a checkpoint
+        # known to NaN-poison reused pipelines), sparing the runtime guard its
+        # one wasted render after every restart. Union only — never removes a
+        # runtime-learned entry.
+        if ms.get("cache_unsafe"):
+            _CACHE_UNSAFE.add(model_id)
+
+        label = ms.get("label") or model_id.split(":", 1)[1].replace("_", " ")
+        hint = ""
+        if ms.get("steps"):
+            hint = f" · ~{ms['steps']} steps" + (" · fast" if ms["steps"] <= 12 else "")
         models.append({
             "id":   model_id,
-            "name": f"{label} — on this Mac, $0.00",
+            "name": f"{label} — on this Mac, $0.00{hint}",
             "type": kind,
         })
     return models
@@ -235,19 +309,20 @@ def _apply_sampler(pipe, name: Optional[str] = None) -> str:
     return type(pipe.scheduler).__name__
 
 
-def _negative_prompt(caller: str) -> Optional[str]:
-    """Combine the caller's negatives with the quality-floor defaults.
+def _negative_prompt(caller: str, model_negative: Optional[str] = None) -> Optional[str]:
+    """Combine the caller's negatives with per-model and quality-floor defaults.
 
     The defaults are boilerplate about rendering artefacts, not subject matter,
     so they compose with a caller's negatives rather than being replaced by
     them. Set LOCAL_NEGATIVE_PROMPT="" to opt out entirely.
 
-    Caller terms come FIRST. CLIP truncates the encoded prompt at 77 tokens
-    and the defaults already spend ~60 of them — whatever exceeds the budget
-    must be our boilerplate's tail, never something the user explicitly asked
-    to avoid.
+    Order: caller → per-model → global floor. CLIP truncates the encoded
+    prompt at 77 tokens and the floor already spends ~60 of them — whatever
+    exceeds the budget must be boilerplate's tail, never something the user
+    explicitly asked to avoid.
     """
-    parts = [p.strip() for p in (caller, LOCAL_NEGATIVE_PROMPT) if p and p.strip()]
+    parts = [p.strip() for p in (caller, model_negative, LOCAL_NEGATIVE_PROMPT)
+             if p and p.strip()]
     return ", ".join(parts) or None
 
 
@@ -432,11 +507,18 @@ def generate(
     """
     import random as _random
 
+    # Tier 2 of the settings chain: explicit argument → per-model → env config.
+    ms = _model_settings(model_id)
+    steps = max(1, steps if steps else ms.get("steps", LOCAL_STEPS))
+    guidance = ms.get("guidance", LOCAL_GUIDANCE) if guidance is None else guidance
+    sampler = sampler or ms.get("sampler")
+    denoise = ms.get("hires_denoise", LOCAL_HIRES_DENOISE) if hires_denoise is None else hires_denoise
+    if hires_scale is None:
+        hires_scale = ms.get("hires_scale")   # None still falls through to env
+
     prompt = f"{content_prompt}, {style_prompt}" if style_prompt else content_prompt
-    negative = (negative_prompt or None) if negative_raw else _negative_prompt(negative_prompt)
-    steps = max(1, steps if steps else LOCAL_STEPS)
-    guidance = LOCAL_GUIDANCE if guidance is None else guidance
-    denoise = LOCAL_HIRES_DENOISE if hires_denoise is None else hires_denoise
+    negative = ((negative_prompt or None) if negative_raw
+                else _negative_prompt(negative_prompt, ms.get("negative")))
 
     if seed is None or seed < 0:
         seed = _random.randint(0, 2**32 - 1)
@@ -580,7 +662,12 @@ def refine(
     import random as _random
 
     strength = min(0.9, max(0.1, float(strength)))
-    steps = max(1, LOCAL_STEPS)
+    # Per-model settings apply here too — refining through a turbo model at 35
+    # env steps would be exactly the mistuning this feature exists to fix.
+    ms = _model_settings(model_id)
+    steps = max(1, ms.get("steps", LOCAL_STEPS))
+    guidance = ms.get("guidance", LOCAL_GUIDANCE)
+    sampler = ms.get("sampler")
     # img2img actually runs int(steps * strength) denoising steps.
     actual = max(1, int(steps * strength))
 
@@ -590,7 +677,7 @@ def refine(
     def _attempt() -> tuple[Image.Image, dict]:
         torch = _torch()
         pipe = _load(model_id)
-        _apply_sampler(pipe)
+        _apply_sampler(pipe, sampler)
         path, kind = _resolve(model_id)
 
         w, h = _dimensions(kind, None, source.width, source.height)
@@ -602,13 +689,13 @@ def refine(
             "model_id": model_id,
             "model_file": model_digest.identity(path),
             "seed": seed,
-            "sampler": (LOCAL_SAMPLER or "").strip().lower(),
+            "sampler": (sampler or LOCAL_SAMPLER or "").strip().lower(),
             "steps": steps,
-            "guidance": LOCAL_GUIDANCE,
+            "guidance": guidance,
             "width": w,
             "height": h,
             "prompt_final": prompt,
-            "negative_final": _negative_prompt(negative_prompt),
+            "negative_final": _negative_prompt(negative_prompt, ms.get("negative")),
             "hires": {"ran": False},
             # Reproducing a refinement needs the parent file too; the caller
             # records parent_filename and the refine block alongside this.
@@ -630,7 +717,7 @@ def refine(
             image=canvas,
             strength=strength,
             num_inference_steps=steps,
-            guidance_scale=LOCAL_GUIDANCE,
+            guidance_scale=guidance,
             generator=torch.Generator("cpu").manual_seed(seed),
             callback_on_step_end=_cb,
         ).images[0]

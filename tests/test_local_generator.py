@@ -359,3 +359,131 @@ def test_cache_unsafe_models_evict_before_and_after(monkeypatch, models_dir):
     assert not local_generator._looks_poisoned(img2)
     assert calls["gens"] == 3                              # no second wasted render
     local_generator._CACHE_UNSAFE.discard("local:unstable")
+
+
+# ── per-model settings ──────────────────────────────────────────────────────
+
+import json as _json
+
+
+def _sidecar(models_dir, stem, data):
+    with open(os.path.join(models_dir, stem + ".json"), "w") as f:
+        _json.dump(data, f)
+
+
+def test_turbo_name_heuristic(models_dir):
+    for name in ("foo_turbo", "bar_Lightning", "baz_HYPERfast"):
+        _fake_checkpoint(models_dir, f"{name}.safetensors")
+        ms = local_generator._model_settings(f"local:{name}")
+        assert ms.get("steps") == 8 and ms.get("guidance") == 2.0, name
+
+
+def test_plain_name_gets_no_settings(models_dir):
+    _fake_checkpoint(models_dir, "plain.safetensors")
+    assert local_generator._model_settings("local:plain") == {}
+
+
+def test_sidecar_beats_heuristic(models_dir):
+    _fake_checkpoint(models_dir, "x_turbo.safetensors")
+    _sidecar(models_dir, "x_turbo", {"steps": 6, "guidance": 1.5})
+    ms = local_generator._model_settings("local:x_turbo")
+    assert ms["steps"] == 6 and ms["guidance"] == 1.5
+
+
+def test_partial_sidecar_merges_over_heuristic(models_dir):
+    """A turbo file whose sidecar only sets a label keeps 8/2.0 from the name."""
+    _fake_checkpoint(models_dir, "y_turbo.safetensors")
+    _sidecar(models_dir, "y_turbo", {"label": "Y Turbo"})
+    ms = local_generator._model_settings("local:y_turbo")
+    assert ms["steps"] == 8 and ms["guidance"] == 2.0 and ms["label"] == "Y Turbo"
+
+
+def test_sidecar_validation_drops_and_clamps(models_dir):
+    _fake_checkpoint(models_dir, "z.safetensors")
+    _sidecar(models_dir, "z", {
+        "steps": 9999,                    # out of range -> dropped
+        "guidance": "high",               # wrong type -> dropped
+        "sampler": "not-a-sampler",       # unknown -> dropped
+        "hires_scale": 2.0,               # valid
+        "path": "/etc/passwd",            # unknown key -> ignored
+        "cache_unsafe": "yes",            # wrong type (str) -> dropped
+    })
+    ms = local_generator._model_settings("local:z")
+    assert "steps" not in ms and "guidance" not in ms and "sampler" not in ms
+    assert ms["hires_scale"] == 2.0
+    assert "path" not in ms and "cache_unsafe" not in ms
+
+
+def test_malformed_sidecar_is_absent(models_dir):
+    _fake_checkpoint(models_dir, "broken.safetensors")
+    with open(os.path.join(models_dir, "broken.json"), "w") as f:
+        f.write("{not json")
+    assert local_generator._model_settings("local:broken") == {}
+
+
+def test_sidecar_files_are_not_models(models_dir):
+    _fake_checkpoint(models_dir, "real.safetensors")
+    _sidecar(models_dir, "real", {"label": "Real"})
+    ids = {m["id"] for m in local_generator.discover_models()}
+    assert ids == {"local:real"}
+
+
+def test_discovery_uses_label_and_speed_hint(models_dir):
+    _fake_checkpoint(models_dir, "quick_turbo.safetensors")
+    _sidecar(models_dir, "quick_turbo", {"label": "Quick"})
+    (m,) = local_generator.discover_models()
+    assert m["name"].startswith("Quick — on this Mac, $0.00")
+    assert "~8 steps" in m["name"] and "fast" in m["name"]
+
+
+def test_cache_unsafe_seeded_from_sidecar(models_dir):
+    _fake_checkpoint(models_dir, "unstable2.safetensors")
+    _sidecar(models_dir, "unstable2", {"cache_unsafe": True})
+    local_generator._CACHE_UNSAFE.discard("local:unstable2")
+    local_generator.discover_models()
+    assert "local:unstable2" in local_generator._CACHE_UNSAFE
+    # runtime-learned entries survive re-discovery
+    local_generator._CACHE_UNSAFE.add("local:learned")
+    local_generator.discover_models()
+    assert "local:learned" in local_generator._CACHE_UNSAFE
+    local_generator._CACHE_UNSAFE.discard("local:unstable2")
+    local_generator._CACHE_UNSAFE.discard("local:learned")
+
+
+def test_explicit_argument_beats_sidecar(models_dir, monkeypatch):
+    """The regeneration invariant: a stored recipe's values always win."""
+    from PIL import Image as PILImage
+    _fake_checkpoint(models_dir, "s_turbo.safetensors")
+
+    seen = {}
+
+    class FakePipe:
+        def __call__(self, **kw):
+            seen.update(kw)
+            return type("R", (), {"images": [PILImage.new("RGB", (8, 8), (90, 90, 90))]})()
+
+    monkeypatch.setattr(local_generator, "_load", lambda mid: FakePipe())
+    monkeypatch.setattr(local_generator, "_apply_sampler", lambda p, n=None: "X")
+    monkeypatch.setattr(local_generator, "_torch", lambda: __import__("torch"))
+    monkeypatch.setattr(local_generator, "_hires_target", lambda w, h, s=None: None)
+
+    # no explicit args -> sidecar/heuristic tier wins
+    _, meta = local_generator.generate(content_prompt="x", model_id="local:s_turbo", seed=1)
+    assert seen["num_inference_steps"] == 8 and seen["guidance_scale"] == 2.0
+    assert meta["steps"] == 8 and meta["guidance"] == 2.0
+
+    # explicit args (regeneration) -> they win over the model tier
+    _, meta = local_generator.generate(content_prompt="x", model_id="local:s_turbo",
+                                       seed=1, steps=35, guidance=7.0)
+    assert seen["num_inference_steps"] == 35 and seen["guidance_scale"] == 7.0
+    assert meta["steps"] == 35 and meta["guidance"] == 7.0
+
+
+def test_model_negative_composes_between_caller_and_floor(models_dir):
+    _fake_checkpoint(models_dir, "neg.safetensors")
+    _sidecar(models_dir, "neg", {"negative": "chibi, sketch"})
+    ms = local_generator._model_settings("local:neg")
+    combined = local_generator._negative_prompt("no hats", ms.get("negative"))
+    assert combined.startswith("no hats")           # caller still leads
+    assert "chibi, sketch" in combined
+    assert combined.index("chibi") < combined.index("bad anatomy")  # model before floor
