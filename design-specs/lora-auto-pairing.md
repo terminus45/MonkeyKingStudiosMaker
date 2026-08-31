@@ -41,75 +41,75 @@ Turbo, but "usually" is a Phase 0 question).
 
 ---
 
-## Phases
+## Phases — v2, reordered 2026-08-31 (Krea 2 first)
 
-### Phase 0 — Krea 2 feasibility spike (gate, no product code)
+> User direction after the Phase 0 spike: get Krea 2 working as a selectable
+> model FIRST; LoRA pairing follows. Auth + license are done (verified 200 on
+> the gated repo); the ~36 GB diffusers-format download is in flight.
 
-1. Sizes: DiT + Qwen3VL-4B + VAE in bf16 vs fp8; total working set vs 32 GB
-   unified memory. (Qwen3VL-4B alone ≈ 8 GB bf16.)
-2. Runtime: does current diffusers load Krea 2 (`from_single_file` or repo
-   folder)? If not: is support in diffusers main / a release away / Comfy-only?
-3. MPS: bf16 path timing at Turbo's 8 steps — target ≤ 60 s/image (the
-   local-gen gate).
-4. The LoRA: locate "Realism Engine Krea 2" (v3), confirm license permits
-   local use, confirm it applies to Turbo, measure size.
-5. **Gate:** all four green → Phase 3 proceeds with Krea 2. Any red → the
-   pairing architecture (Phases 1–2) still lands and ships against SDXL
-   (the Chinese-style-illustration LoRAs already in `models/LORAs/` are the
-   proving pair); Krea 2 waits on upstream.
+### K1 — Acquire *(in progress)*
 
-### Phase 1 — Pairing core (architecture-agnostic; ships alone)
+`krea/Krea-2-Turbo` diffusers folder → `models/krea2-turbo/` (transformer
+shards, Qwen3VL-4B text encoder, VAE, tokenizer, scheduler,
+model_index.json). The redundant 26 GB single-file variant is excluded.
+Verify shard completeness against the repo manifest before building on it.
 
-- **Sidecar key** `"loras": [{"file": "<basename in models/LORAs/>", "scale": 0.8}]`.
-  Validation per the sidecar rules: basename only (any path separator
-  rejected), file must exist under `LORAS_DIR`, `.safetensors` only, scale
-  clamped 0–2. Sidecars are server-side trusted config (D3 posture);
-  nothing from a request body ever names a LoRA file.
-- `_load()` applies declared LoRAs after pipeline construction
-  (`load_lora_weights` + `set_adapters`), so the cached pipeline carries
-  them; the sidecar checksum already regenerates settings + compat table on
-  change, and eviction on model switch already exists.
-- **Architecture guard:** a LoRA that fails to load (wrong base family) must
-  fail the *load* with a clear error naming the sidecar, not silently
-  produce a un-LoRA'd or broken pipeline.
-- **Metadata/reproducibility:** `meta["loras"] = [{file, sha256?, scale}]`
-  recorded like everything else; regenerate replays via per-call override
-  (`loras` joins the explicit-override tier so old recipes beat sidecar
-  edits — same invariant, same test).
-- Picker: the sidecar `label` already names the pairing ("… + Realism
-  Engine"); no new UI.
+### K2 — Backend: the `krea2` kind
 
-### Phase 2 — Pairing verification on SDXL (proof, cheap)
+- **Folder-model discovery.** `discover_models()` additionally scans
+  `models/*/model_index.json`; the directory name becomes the id
+  (`local:krea2-turbo`) and the `_class_name` maps to the kind
+  (`Krea2Pipeline`/Turbo → `krea2`). Ids-not-paths holds — the API never
+  sees a directory, only the id.
+- **Loading.** `_load()` branches: folder → `DiffusionPipeline.from_pretrained`
+  in bf16. Single-resident-pipeline policy and the GPU semaphore apply
+  unchanged. Memory strategy is K4's experiment, in order of preference:
+  plain `.to("mps")` (35.7 GB — likely swaps), `enable_model_cpu_offload()`
+  (staged residency; on unified memory this bounds peak MPS allocation, not
+  total RAM), and freeing the text encoder post-encode.
+- **Kind-gates on SD-isms.** `_apply_sampler` no-ops for `krea2` (DiT
+  flow-matching scheduler; the SAMPLERS table is SD-specific). Hires pass:
+  excluded by kind (native ≥1024). `LOCAL_NEGATIVE_PROMPT`: not sent
+  (distilled CFG — Turbo runs guidance ~1, negatives inert).
+- **Per-model settings** work off the folder stem (`models/krea2-turbo.json`):
+  `steps: 8`, label. `_model_settings` learns folder stems.
+- **Unchanged and load-bearing:** seed via CPU generator, metadata capture
+  (`kind: "krea2"`), step callbacks → job progress, poison guard,
+  regenerate's explicit-override tier.
 
-Pair `SDXL version of Chinese style illustration model.Pbxg.safetensors`
-(already on disk) with an SDXL checkpoint via sidecar; verify: applies
-(visible style shift at fixed seed), records in metadata, regenerates
-bit-identically, refine-compat table unaffected, absent-LoRA-file fails
-loudly at load. This proves the whole pairing machinery independent of the
-Krea 2 gate.
+### K3 — Selectable + honest in the picker
 
-### Phase 3 — Krea 2 backend (conditional on Phase 0)
+Discovery entry appears in Settings under "On this Mac" with a label that
+tells the truth K4 measures (e.g. "Krea 2 Turbo — best quality, ~3 min").
+Refine-compat: `krea2` pairs only with `krea2`; diffusers 0.40 has no Krea 2
+img2img pipeline, so refine-options returns empty for krea2 images (the
+panel already explains empty states) — noted as a follow-up, not a blocker.
 
-- `kind: "krea2"` joins the family enum end-to-end (dimensions: DiT native
-  sizes; refine-compat: krea2 pairs only with krea2; `_dimensions` bucket).
-- Pipeline class per Phase 0's answer (diffusers pipeline if it exists;
-  otherwise this phase parks until upstream ships — we do NOT hand-roll a
-  DiT runner or add ComfyUI as a dependency).
-- Folder-repo loading (DiT + text encoder + VAE live as separate files —
-  the single-file `.safetensors` discovery gains a declared-folder form:
-  a sidecar-only model entry pointing at component files, still ids-not-paths
-  from the API's perspective).
-- Turbo settings via the existing sidecar tier: `steps: 8`, low guidance,
-  `label: "Krea 2 Turbo + Realism Engine"`.
+### K4 — Gate 3, empirically *(the go/no-go the spike couldn't run)*
 
-### Phase 4 — Ship the pairing
+First generation answers: does 35.7 GB bf16 run in 32 GB unified memory, at
+what s/step, with which memory strategy. Record results here. If it thrashes
+unusably, the model stays discovered but the label says so, and the phase
+parks — selectable-but-honest beats hidden.
 
-Download Krea 2 Turbo (bf16 components) + Realism Engine LoRA into place,
-write the sidecar, verify the full ladder: generate (~8 steps), metadata
-records model+LoRA, regenerate bit-identical, refine within-family, picker
-shows one entry. Cost note for the picker label if slower than SDXL Turbo.
+### L1 — LoRA pairing core *(unchanged design, now after K-phases)*
 
----
+Sidecar `"loras": [{"file", "scale"}]`, basename-only against
+`models/LORAs/`, applied in `_load`, recorded in metadata, replayed through
+the explicit-override tier. Loud failure on missing/mismatched files.
+
+### L2 — Pairing proof on SDXL *(cheap, unchanged)*
+
+The Chinese-style-illustration SDXL LoRA already on disk: style shift at
+fixed seed, metadata, bit-identical regenerate.
+
+### L3 — Realism Engine on Krea 2
+
+Civitai-login download (user action), sidecar pairing at strength 0.8 with a
+fixed-seed A/B before freezing. **The Phase 0 content-safety flag stands:**
+the LoRA is NSFW-flagged/uncensored and this is a kids' app with no local
+guardrail — pairing it is an explicit product decision recorded here, not a
+silent default.
 
 ## Risks, named
 
