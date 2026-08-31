@@ -206,8 +206,10 @@ def _image_jobs_prune() -> None:
 
 
 def _gallery_save_record(filename: str, prompt: str, model: str) -> None:
-    """Server-side gallery append, for jobs no page is polling (regenerate).
-    Best-effort — mirrors the client's fire-and-forget semantics."""
+    """Server-side gallery save, for jobs whose page may be gone at completion.
+    Best-effort — mirrors the client's fire-and-forget semantics. Upserts by
+    filename, so a page that IS still around saving the same image is a merge,
+    never a duplicate."""
     try:
         path = _resolve_image_path(filename)
         record = {
@@ -222,7 +224,7 @@ def _gallery_save_record(filename: str, prompt: str, model: str) -> None:
         meta = gemini_generator.read_image_metadata(path) if path else None
         if meta:
             record["meta"] = meta
-        _manifest_append(_IMAGES_MANIFEST, record)
+        _manifest_upsert_image(record)
     except Exception:
         pass
 
@@ -297,7 +299,12 @@ def generate_job(req: GenerateRequest):
         }
 
     key = req.gemini_key or settings_store.get_key("GEMINI_API_KEY")
-    threading.Thread(target=_run_image_job, args=(job_id, req, key), daemon=True).start()
+    # The worker gallery-saves the result itself: a long render (Krea 2 is
+    # ~15+ min) routinely outlives the page that started it, and the page's
+    # own fire-and-forget save then never fires. Upsert-by-filename means a
+    # page that does survive merges its richer story/style in on top.
+    threading.Thread(target=_run_image_job, args=(job_id, req, key),
+                     kwargs={"gallery_prompt": req.prompt}, daemon=True).start()
     return {"job_id": job_id}
 
 
@@ -1188,6 +1195,30 @@ def _manifest_delete(path: Path, item_id: str) -> bool:
         return True
 
 
+def _manifest_upsert_image(record: dict) -> dict:
+    """Append to the images manifest, or merge into the record already holding
+    this filename.
+
+    A generation job is gallery-saved from two places on purpose: the worker
+    (so a render that outlives its page — a 15-minute Krea 2 job, a closed
+    tab — is never orphaned) and the polling page (which knows story/style
+    the server doesn't). Filename is the identity; the merge fills only the
+    fields the existing record lacks, so whichever save lands second adds
+    information instead of a duplicate card."""
+    with _manifest_lock:
+        items = _manifest_read(_IMAGES_MANIFEST)
+        for existing in items:
+            if existing.get("filename") == record.get("filename"):
+                for k, v in record.items():
+                    if k not in ("id", "created_at") and v and not existing.get(k):
+                        existing[k] = v
+                _manifest_write(_IMAGES_MANIFEST, items)
+                return existing
+        items.append(record)
+        _manifest_write(_IMAGES_MANIFEST, items)
+        return record
+
+
 def _manifest_write(path: Path, items: list) -> None:
     """Write *items* to *path* atomically (temp + os.replace). Caller holds _manifest_lock."""
     dir_path = str(path.parent)
@@ -1287,8 +1318,7 @@ def gallery_image_add(req: GalleryImageRequest):
     meta = gemini_generator.read_image_metadata(path)
     if meta:
         record["meta"] = meta
-    _manifest_append(_IMAGES_MANIFEST, record)
-    return record
+    return _manifest_upsert_image(record)
 
 
 @app.get("/gallery/images")
