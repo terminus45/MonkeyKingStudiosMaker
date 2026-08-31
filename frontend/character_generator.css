@@ -185,3 +185,25 @@
     gap: 1.5rem;
   }
 }
+
+/* ── Seed line + refine panel ── */
+.cg-seed-line {
+  display: flex; align-items: center; justify-content: center; gap: 1rem;
+  font-family: 'Space Mono', monospace;
+}
+.cg-seed-lock { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+.cg-seed-lock input { accent-color: var(--mustard); }
+
+.cg-refine-panel {
+  margin-top: 1rem;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  padding: .9rem 1rem;
+  display: flex; flex-direction: column; gap: .55rem;
+}
+.cg-refine-label { font-size: .8rem; font-weight: 700; color: var(--ink); }
+.cg-refine-panel textarea { width: 100%; }
+.cg-refine-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.cg-refine-actions .settings-btn:disabled { opacity: .4; cursor: not-allowed; }
+.cg-refine-panel .hint a { color: var(--mustard); }

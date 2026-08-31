@@ -156,7 +156,7 @@
         <!-- LOADING STATE (hidden until generating) -->
         <div class="cg-loading-state hidden" id="cgLoadingState" aria-hidden="true" aria-label="Generating portrait…">
           <div class="spinner cg-big-spinner" aria-hidden="true"></div>
-          <p>Generating your character…</p>
+          <p id="cgLoadingLabel" aria-live="polite">Generating your character…</p>
         </div>
 
         <!-- SUCCESS STATE (hidden until image ready) -->
@@ -200,6 +200,34 @@
             id="cgUseAsCoverBtn"
             aria-label="Copy filename to clipboard for use as book cover"
           >📖 Use as Book Cover</button>
+        </div>
+
+        <!-- Seed of the displayed image + lock toggle (local generations only) -->
+        <p class="hint cg-seed-line hidden" id="cgSeedLine" aria-live="polite">
+          <span id="cgSeedText"></span>
+          <label class="cg-seed-lock" id="cgSeedLockLabel" title="Reuse this seed for the next generation — change one word, keep the composition">
+            <input type="checkbox" id="cgSeedLock"> 🔒 keep seed
+          </label>
+        </p>
+
+        <!-- Refine: img2img over the displayed image, on-device only -->
+        <div class="cg-refine-panel" id="cgRefinePanel">
+          <label class="cg-refine-label" for="cgRefineInput">✨ Refine this image</label>
+          <textarea
+            id="cgRefineInput"
+            rows="2"
+            placeholder="make the cape blue and add a hat…"
+            aria-describedby="cgRefineHint"
+          ></textarea>
+          <div class="cg-refine-actions">
+            <button class="settings-btn" id="cgRefineTweak"    data-strength="0.25"
+                    title="Small details — keeps the composition">Tweak</button>
+            <button class="settings-btn" id="cgRefineChange"   data-strength="0.45"
+                    title="Clothing, expression, added objects">Change</button>
+            <button class="settings-btn" id="cgRefineReimagine" data-strength="0.70"
+                    title="Same subject, new take">Reimagine</button>
+          </div>
+          <p class="hint" id="cgRefineHint"></p>
         </div>
       </div>
 
