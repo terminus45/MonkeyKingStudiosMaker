@@ -262,22 +262,44 @@ then alphabetical. Style/prompt-dialect mismatch (Animagine's tags) is a
 *ranking hint*, not a block — sidecars may declare `"prompt_style":
 "natural" | "tags"`; differing style demotes below matching ones.
 
-**F4 — server-side selection.** `RefineRequest.model_id` becomes optional.
-Omitted → the server picks the top-ranked candidate (source's own model when
-available — the common case and the correct default). Supplied → validated
-against the ranking; `cross-family` without `force` is a 400 naming the
-mismatch ("this image was made with an SDXL model; local:dreamshaper_8 is
-SD 1.5 — pass force to override"). New endpoint
-`GET /image/{filename}/refine-options` returns the ranked list for the UI.
+**F4 — compatibility table, generated and saved (revised: no server auto-pick).**
+A persisted table at `models/.refine_compat.json`, generated from the model
+inventory + rules (F3) and regenerated lazily whenever the model set or any
+sidecar changes (keyed on a checksum of both). Shape:
 
-**F5 — frontend.** The refine panel shows which model will run ("Refining
-with DreamShaper XL Turbo — the model that made this image") instead of
-silently using the draft model, with a compact selector of the other
-compatible options. The current behaviour — cloud model selected in Settings
-disables refine entirely — is replaced by: refine works whenever *any*
-compatible local model exists, because the server no longer depends on the
-draft. (This also fixes a latent oddity: switching Settings to a cloud model
-today kills refine for images made locally minutes earlier.)
+```jsonc
+{
+  "generated_at": "...",
+  "inputs_checksum": "...",
+  "models": { "local:x": {"kind": "sdxl", "prompt_style": "natural", "cache_unsafe": true} },
+  "pairs":  { "local:sourceA": [
+      {"model_id": "local:sourceA", "tier": "same-model"},
+      {"model_id": "local:b",       "tier": "same-family"} ] },
+  "overrides": { "allow": [], "ban": [] }   // hand-editable; survive regeneration
+}
+```
+
+The `overrides` block is why the table is *saved* rather than computed on the
+fly: pair-level allow/ban entries persist across regenerations, giving both a
+manual escape hatch (an API user who wants a cross-family pair adds an
+`allow`) and the future landing spot for learned quality data. There is no
+`force` request flag — one mechanism, in the table.
+
+`RefineRequest.model_id` stays **required**. The server never picks a model;
+it only *validates* the explicit choice against the table (unlisted pair →
+400 naming the mismatch — defence for direct API callers, since the dropdown
+already constrains UI users). `GET /image/{filename}/refine-options` reads
+the table and returns the ranked compatible list for the image's source
+model (kind-fallback for legacy images per F2).
+
+**F5 — frontend: a model dropdown in the refine panel (revised).** The panel
+gains a compact `<select>` populated from `/refine-options` whenever an image
+is displayed — only compatible models appear, labelled with their picker
+names. **Pre-selected: the image's own source model** when present (a UI
+default the user can see and change — distinct from the server choosing
+invisibly). No compatible local model → the panel explains why instead of
+offering a broken refine. The Settings draft model no longer plays any role
+in refinement.
 
 ### What "saved info to identify which models work well" means later
 
@@ -291,8 +313,11 @@ now — noted so the schema keeps recording what that would need.
 
 - Unit: floor math (turbo Tweak → ≥6 actual), ranking tiers, cross-family
   400 + force override, legacy-image kind fallback, options endpoint shape.
+- Unit additions: table regeneration on model-set/sidecar change, override
+  persistence across regenerations, unlisted-pair 400.
 - Live: (a) turbo-made image + Tweak actually applies the instruction now;
-  (b) SDXL-made image refined with SD 1.5 selected in Settings → server
-  auto-picks the SDXL source model, panel says so; (c) cross-family force
-  path renders; (d) regenerate of an old refine stays bit-identical (the
-  standing invariant — F1 changes effective steps for NEW refines only).
+  (b) SDXL-made image: dropdown lists only SDXL models, pre-selects the
+  source model, and the Settings draft is irrelevant; (c) an `allow`
+  override makes a cross-family pair refinable; (d) regenerate of an old
+  refine stays bit-identical (the standing invariant — F1 changes
+  effective steps for NEW refines only).
