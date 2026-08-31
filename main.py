@@ -2010,5 +2010,27 @@ def book_pdf_download(job_id: str):
     )
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Serve the frontend with `Cache-Control: no-cache`.
+
+    There is no build step here, so asset filenames carry no content hash. A
+    browser that caches settings.js or style.css from memory will keep serving
+    a stale copy after an edit, with no way to bust it short of a hard reload
+    — which has already cost real debugging time once.
+
+    `no-cache` does not mean "do not store": it means "revalidate before
+    reusing". StaticFiles already emits an ETag and Last-Modified, so each
+    check is a conditional request that answers 304 with an empty body when
+    nothing changed. The cost is one round trip per asset, which is the right
+    trade for a same-origin app whose static files are local anyway.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        # setdefault: never clobber a more specific policy set upstream.
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
 # ── Frontend static files (must be last — catches everything not matched above) ──
-app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+app.mount("/", RevalidatingStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
