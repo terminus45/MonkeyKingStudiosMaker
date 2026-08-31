@@ -32,6 +32,7 @@ import book_pdf
 import gemini_generator
 import image_backends
 import meshy_generator
+import refine_compat
 import practice_sheet as practice_sheet_mod
 import practice_sheet_local as practice_sheet_local_mod
 import languages
@@ -411,6 +412,38 @@ def _run_refine_job(job_id: str, path: str, src_filename: str, prompt: str,
         })
 
 
+@app.get("/image/{filename}/refine-options")
+def refine_options(filename: str):
+    """Ranked refine-compatible models for a saved image.
+
+    Read by the refine panel's model dropdown. The ranking comes from the
+    generated-and-saved compatibility table (models/.refine_compat.json) —
+    same-model first, then same-family; cross-family pairs appear only via an
+    `allow` override in that table. The server never picks; this is the menu.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    path = _resolve_image_path(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    meta = gemini_generator.read_image_metadata(path) or {}
+    source_model = meta.get("model_id") if meta.get("backend") == "local" else None
+    source_kind = refine_compat.kind_for_image(meta, path)
+    opts = refine_compat.candidates(source_model, source_kind)
+
+    names = {m["id"]: m["name"] for m in image_backends.list_models()}
+    return {
+        "source_model": source_model,
+        "source_kind": source_kind,
+        "options": [
+            {"model_id": c["model_id"], "tier": c["tier"],
+             "name": names.get(c["model_id"], c["model_id"])}
+            for c in opts if c["model_id"] in names
+        ],
+    }
+
+
 @app.post("/refine/job")
 def refine_job(req: RefineRequest):
     """img2img refinement of a saved image, as a poll-able job.
@@ -418,6 +451,9 @@ def refine_job(req: RefineRequest):
     The refine prompt = the source's stored prompt_final (anchor, keeps the
     subject) + the user's instruction. Falls back to the gallery record's
     prompt for legacy images with no embedded metadata — they stay refinable.
+
+    model_id is required and must be compatible with the image per the saved
+    table — the server validates the caller's explicit choice, it never picks.
     """
     if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
         raise HTTPException(status_code=400, detail="Invalid filename format.")
@@ -431,6 +467,19 @@ def refine_job(req: RefineRequest):
     path = _resolve_image_path(req.filename)
     if path is None:
         raise HTTPException(status_code=404, detail="Image not found.")
+
+    src_meta = gemini_generator.read_image_metadata(path) or {}
+    source_model = src_meta.get("model_id") if src_meta.get("backend") == "local" else None
+    source_kind = refine_compat.kind_for_image(src_meta, path)
+    allowed = {c["model_id"] for c in refine_compat.candidates(source_model, source_kind)}
+    if req.model_id not in allowed:
+        src_desc = source_model or f"a {source_kind or 'unknown'}-class image"
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{req.model_id} is not refine-compatible with this image "
+                    f"(source: {src_desc}). Compatible models are listed by "
+                    f"GET /image/{{filename}}/refine-options; to permit this pair "
+                    f"anyway, add it to `overrides.allow` in models/.refine_compat.json."))
 
     meta = gemini_generator.read_image_metadata(path) or {}
     anchor = meta.get("prompt_final")

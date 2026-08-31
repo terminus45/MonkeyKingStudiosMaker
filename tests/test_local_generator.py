@@ -487,3 +487,58 @@ def test_model_negative_composes_between_caller_and_floor(models_dir):
     assert combined.startswith("no hats")           # caller still leads
     assert "chibi, sketch" in combined
     assert combined.index("chibi") < combined.index("bad anatomy")  # model before floor
+
+
+def test_refine_actual_steps_floor(models_dir, monkeypatch):
+    """Turbo (steps 8) at Tweak strength ran TWO actual denoising steps —
+    too few to execute any instruction. The floor scales scheduled steps so
+    strength x steps >= MIN_REFINE_ACTUAL; non-turbo models already clear it."""
+    from PIL import Image as PILImage
+    _fake_checkpoint(models_dir, "t_turbo.safetensors")
+    _fake_checkpoint(models_dir, "normal.safetensors")
+
+    seen = {}
+
+    class FakeRefiner:
+        def __call__(self, **kw):
+            seen.update(kw)
+            return type("R", (), {"images": [PILImage.new("RGB", (8, 8), (90, 90, 90))]})()
+
+    monkeypatch.setattr(local_generator, "_load", lambda mid: object())
+    monkeypatch.setattr(local_generator, "_img2img_pipe", lambda p: FakeRefiner())
+    monkeypatch.setattr(local_generator, "_apply_sampler", lambda p, n=None: "X")
+    monkeypatch.setattr(local_generator, "_torch", lambda: __import__("torch"))
+
+    src = PILImage.new("RGB", (512, 512), (50, 60, 70))
+
+    # turbo at Tweak: 8 scheduled would give int(8*0.25)=2 actual — floor kicks in
+    _, meta = local_generator.refine(source=src, prompt="p", model_id="local:t_turbo",
+                                     strength=0.25, seed=1)
+    assert int(seen["num_inference_steps"] * 0.25) >= local_generator.MIN_REFINE_ACTUAL
+    assert meta["steps"] == seen["num_inference_steps"]
+
+    # non-turbo at Tweak: 35 * 0.25 = 8 actual — already clears, unchanged
+    _, _ = local_generator.refine(source=src, prompt="p", model_id="local:normal",
+                                  strength=0.25, seed=1)
+    assert seen["num_inference_steps"] == 35
+
+
+def test_generation_meta_records_kind(models_dir, monkeypatch):
+    from PIL import Image as PILImage
+
+    class FakePipe:
+        def __call__(self, **kw):
+            return type("R", (), {"images": [PILImage.new("RGB", (8, 8), (90, 90, 90))]})()
+
+    monkeypatch.setattr(local_generator, "_load", lambda mid: FakePipe())
+    monkeypatch.setattr(local_generator, "_apply_sampler", lambda p, n=None: "X")
+    monkeypatch.setattr(local_generator, "_torch", lambda: __import__("torch"))
+    monkeypatch.setattr(local_generator, "_hires_target", lambda w, h, s=None: None)
+
+    _fake_checkpoint(models_dir, "big.safetensors", gb=6.0)
+    _, meta = local_generator.generate(content_prompt="x", model_id="local:big", seed=1)
+    assert meta["kind"] == "sdxl"
+
+    _fake_checkpoint(models_dir, "small.safetensors", gb=2.0)
+    _, meta = local_generator.generate(content_prompt="x", model_id="local:small", seed=1)
+    assert meta["kind"] == "sd15"

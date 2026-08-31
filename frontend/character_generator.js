@@ -195,20 +195,53 @@ function showSeed(seed) {
 }
 
 // ── Refine panel ─────────────────────────────────────────────────────────────
-function currentModelIsLocal() {
+// The model dropdown lists ONLY refine-compatible models for the displayed
+// image (from /refine-options, backed by the saved compatibility table),
+// pre-selecting the model that made it. The Settings draft model plays no
+// role here — an image made locally stays refinable even if Settings now
+// points at a cloud model.
+const cgRefineModel = document.getElementById('cgRefineModel');
+let _refineOptionsFor = null;   // filename the current dropdown belongs to
+
+async function loadRefineOptions(filename) {
+  _refineOptionsFor = filename;
+  cgRefineModel.innerHTML = '';
+  setRefineEnabled(false, 'Checking compatible models…');
   try {
-    const draft = JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}');
-    return typeof draft.model === 'string' && draft.model.startsWith('local:');
-  } catch { return false; }
+    const res = await fetch(`${API}/image/${filename}/refine-options`);
+    if (!res.ok) throw new Error(`Error ${res.status}`);
+    const data = await res.json();
+    if (_refineOptionsFor !== filename) return;   // user moved on mid-fetch
+
+    const opts = data.options || [];
+    if (opts.length === 0) {
+      setRefineEnabled(false,
+        'No compatible on-device model for this image — add a matching checkpoint to the models folder.');
+      return;
+    }
+    for (const o of opts) {
+      const el = document.createElement('option');
+      el.value = o.model_id;
+      el.textContent = o.tier === 'same-model' ? `${o.name} (made this image)` : o.name;
+      cgRefineModel.appendChild(el);
+    }
+    // Visible, changeable default — the image's own source model when present.
+    if (data.source_model && opts.some(o => o.model_id === data.source_model)) {
+      cgRefineModel.value = data.source_model;
+    }
+    setRefineEnabled(true, '');
+  } catch {
+    if (_refineOptionsFor === filename) {
+      setRefineEnabled(false, 'Could not load compatible models — is the server up?');
+    }
+  }
 }
 
-function updateRefinePanel() {
-  const local = currentModelIsLocal();
-  cgRefineButtons.forEach(b => { b.disabled = !local; });
-  cgRefineInput.disabled = !local;
-  cgRefineHint.innerHTML = local
-    ? ''
-    : 'Refinement runs on-device — choose an “On this Mac” model in <a href="settings.html">Settings</a>.';
+function setRefineEnabled(enabled, hint) {
+  cgRefineButtons.forEach(b => { b.disabled = !enabled; });
+  cgRefineInput.disabled = !enabled;
+  cgRefineModel.disabled = !enabled;
+  cgRefineHint.textContent = hint;
 }
 
 async function startRefine(strength) {
@@ -216,8 +249,10 @@ async function startRefine(strength) {
   if (!instruction) { shakeField(cgRefineInput); return; }
   if (!currentFilename) return;
 
-  const draft = (() => { try { return JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}'); } catch { return {}; } })();
-  const model = draft.model || '';
+  // The user's explicit choice from the compatibility dropdown — never the
+  // Settings draft.
+  const model = cgRefineModel.value;
+  if (!model) return;
   const description = (cgUseAsCoverBtn.dataset.description || sharedCharacterInput.value.trim());
 
   hideError();
@@ -260,7 +295,7 @@ function onGenerated(filename, description, model, seed) {
   showImage(filename, desc);
   addThumbToStrip(filename, desc);
   showSeed(seed);
-  updateRefinePanel();
+  loadRefineOptions(filename);
 
   sessionImages.push({ filename, description: desc });
   saveSession();
@@ -655,12 +690,10 @@ function restoreSession() {
   // Wire shared input listeners — bindFields populates fields and registers cross-tab sync
   wireSharedInputListeners();
 
-  // Refine availability depends on the selected model; keep it current even
-  // when Settings is changed in another tab (the draft lives in localStorage).
-  updateRefinePanel();
-  window.addEventListener('storage', e => {
-    if (e.key === CG_DRAFT_KEY) updateRefinePanel();
-  });
+  // Refine compatibility is a property of the displayed IMAGE, not of the
+  // Settings draft — load the dropdown for whatever restoreSession() put up.
+  if (currentFilename) loadRefineOptions(currentFilename);
+  else setRefineEnabled(false, 'Generate an image to refine it.');
 
   // Re-attach to a generation that was still running when this page was left.
   resumeJobIfAny();

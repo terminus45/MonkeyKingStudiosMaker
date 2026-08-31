@@ -88,6 +88,10 @@ _SDXL_MIN_BYTES = 4 * 1024 ** 3
 
 _TURBO_HINTS = ("turbo", "lightning", "hyper")
 
+# A refinement must run at least this many ACTUAL denoising steps
+# (img2img executes int(strength x steps)); see refine().
+MIN_REFINE_ACTUAL = 6
+
 # key -> (validator, clamp) — anything else in a sidecar is ignored.
 _SIDECAR_KEYS = {
     "steps":         lambda v: int(v) if isinstance(v, (int, float)) and 1 <= v <= 150 else None,
@@ -98,6 +102,9 @@ _SIDECAR_KEYS = {
     "label":         lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
     "negative":      lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
     "cache_unsafe":  lambda v: bool(v) if isinstance(v, bool) else None,
+    # Prompt dialect the checkpoint expects — used by refine compatibility to
+    # demote tag-trained models (Animagine) for natural-language sources.
+    "prompt_style":  lambda v: v if v in ("natural", "tags") else None,
 }
 
 
@@ -410,12 +417,14 @@ def _load(model_id: str):
             except Exception:
                 pass
 
-        # Keep peak memory down so the hires pass has headroom at 768²+.
-        for opt in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
-            try:
-                getattr(pipe, opt)()
-            except Exception:
-                pass
+        # NO attention slicing — ever. It was added here as memory insurance
+        # for the hires pass and turned out to be the root cause of the
+        # black-image saga: sliced attention on MPS NaNs SDXL UNets — every
+        # img2img call immediately, and text2img from the second call on a
+        # cached pipeline (fine-tunes reliably; stock SDXL escaped in some
+        # runs). Flipped both ways on one pipeline object: slicing off →
+        # clean, re-enabled → black. Memory was never actually tight at these
+        # sizes (every pre-slicing SDXL benchmark ran fine without it).
         # No NSFW black-image substitution: the checker frequently
         # false-positives on illustration. Note that SAFETY_STYLE_SUFFIX is
         # also NOT appended on this path (see image_backends.generate), so
@@ -541,6 +550,7 @@ def generate(
         import model_digest
         meta = {
             "backend": "local",
+            "kind": kind,                     # architecture family, for refine compatibility
             "model_id": model_id,
             "model_file": model_digest.identity(path),
             "seed": seed,
@@ -668,7 +678,14 @@ def refine(
     steps = max(1, ms.get("steps", LOCAL_STEPS))
     guidance = ms.get("guidance", LOCAL_GUIDANCE)
     sampler = ms.get("sampler")
-    # img2img actually runs int(steps * strength) denoising steps.
+    # img2img actually runs int(steps * strength) denoising steps — and that
+    # number must clear a floor, or the refinement cannot execute its
+    # instruction. Turbo models (steps: 8) made Tweak run TWO actual steps:
+    # output was the input back, or mush. Scale the scheduled count up so the
+    # actual count is always >= MIN_REFINE_ACTUAL; non-turbo models already
+    # clear it (35 x 0.25 = 8) and are unaffected.
+    import math
+    steps = max(steps, math.ceil(MIN_REFINE_ACTUAL / strength))
     actual = max(1, int(steps * strength))
 
     if seed is None or seed < 0:
@@ -686,6 +703,7 @@ def refine(
         import model_digest
         meta = {
             "backend": "local",
+            "kind": kind,                     # architecture family, for refine compatibility
             "model_id": model_id,
             "model_file": model_digest.identity(path),
             "seed": seed,
