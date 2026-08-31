@@ -213,3 +213,47 @@ separate integration. Re-enabling is deleting one sidecar line.
 **Plan consequence:** L-phases (LoRA auto-pairing) proceed on SD/SDXL as
 designed — the pairing machinery was always architecture-agnostic. The
 "Realism Engine Krea 2" pairing parks with its base model.
+
+## Route C results — 2026-08-31: ✅ WORKING. Krea 2 Turbo is selectable, via ComfyUI.
+
+The user installed ComfyUI (Desktop, port 8001) and chose option (c) from the
+K4 verdict. `comfy_generator.py` is the integration: stdlib-only HTTP client
+that submits the official Krea-2 Turbo API graph (`CLIPLoader type="krea2"`,
+KSampler 8 steps / cfg 1.0 / euler / simple, `ConditioningZeroOut` negative)
+to a local ComfyUI, polls `/history`, fetches the PNG via `/view`. Discovery
+offers `comfy:krea2-turbo` only when Comfy is up **and** every required file
+is present; an unreachable Comfy can never break the registry or the app.
+
+**DiT variant findings (empirical, on MPS):**
+
+| Variant | Size | Outcome |
+|---|---|---|
+| int8 (Civitai "OfficialComfy") | 13 GB | ❌ `aten::_int_mm` has no MPS kernels (comfy_kitchen int8 matmul) |
+| fp8_scaled (Comfy-Org) | 13 GB | ❌ `Float8_e4m3fn` dtype unsupported on the MPS backend |
+| **bf16 (Comfy-Org)** | 26.3 GB | ✅ loads fully (24.4 GB resident), renders correctly |
+
+`_KREA2_DIT_CANDIDATES` prefers bf16; the quantized files stay listed as
+fallbacks for non-Mac hosts.
+
+**Measured, first successful render (M4 / 32 GB, seed 42, 896×1152):**
+cold render **18 min 13 s** — ~2 min model load + 8 steps at 44→134 s/step
+(slowing as memory pressure builds) + VAE decode. Output quality is visibly
+above our SD/SDXL checkpoints: clean linework, correct anatomy, strong
+prompt adherence. Full app pipeline verified: job API → comfy backend →
+PNG saved with embedded `mk_meta` (backend/model_file/seed/prompt_final,
+`reproducible: true`) — pixel-identical to Comfy's own output. A repeat
+submission with the identical recipe returns in ~2 s from ComfyUI's
+execution cache while the model is resident.
+
+**Operational notes:** `COMFY_TIMEOUT_S` default raised 900→2400 (the first
+attempt timed out at 900 s on a render Comfy went on to finish); picker label
+says "very slow (~15+ min)" — Krea 2 is a one-off portrait tool here, not a
+book-pipeline default. A ComfyUI-Manager restart mid-job kills the render
+(job errors at timeout); don't install custom nodes while a render runs.
+Progress is coarse (0→done); Comfy's websocket would give per-step events —
+noted follow-up. The in-process K2/diffusers path stays dormant behind its
+`disabled: true` sidecar.
+
+**Plan consequence:** L3's Realism Engine pairing has its hook — the official
+template's `LoraLoaderModelOnly` node (strength 0.8) slots between UNETLoader
+and KSampler. L1/L2 (sidecar `loras` key, SDXL proof) proceed as designed.

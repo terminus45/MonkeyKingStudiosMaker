@@ -266,9 +266,15 @@ async function loadLocalStatus() {
     const res = await fetch(`${API}/models/local/status`);
     if (!res.ok) return;
     const s = await res.json();
-    el.textContent = s.available
+    let line = s.available
       ? `On-device generation ready (${s.device}) — ${s.models.length} local model${s.models.length === 1 ? '' : 's'}, free but slower`
       : `On-device generation unavailable — ${s.reason}`;
+    if (s.comfy) {
+      line += s.comfy.available
+        ? ' · ComfyUI connected (Krea 2 available)'
+        : ` · ComfyUI: ${s.comfy.reason}`;
+    }
+    el.textContent = line;
   } catch {
     /* non-fatal: the cloud models still work */
   }

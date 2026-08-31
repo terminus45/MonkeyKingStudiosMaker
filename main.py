@@ -29,6 +29,7 @@ from config import (
     SAFETY_STYLE_SUFFIX,
 )
 import book_pdf
+import comfy_generator
 import gemini_generator
 import image_backends
 import meshy_generator
@@ -325,7 +326,7 @@ def regenerate_job(req: RegenerateRequest):
             status_code=400,
             detail="No reproducible recipe is recorded in this image.")
     model_id = meta.get("model_id") or ""
-    if image_backends.backend_for(model_id) != "local":
+    if image_backends.backend_for(model_id) not in ("local", "comfy"):
         raise HTTPException(
             status_code=400,
             detail=f"The model this image was made with ({model_id}) is no longer available.")
@@ -595,18 +596,26 @@ def local_models_status():
     found" instead of just showing an empty section.
     """
     local = image_backends._local_module()
-    if local is None:
-        return {"available": False, "reason": "Local backend module not present", "models": []}
+    out = {"available": False, "reason": "Local backend module not present", "models": []}
+    if local is not None:
+        try:
+            ok, reason = local.available()
+            out = {
+                "available": ok,
+                "reason": reason,
+                "device": local._device() if ok else None,
+                "models": local.discover_models() if ok else [],
+            }
+        except Exception as e:
+            out = {"available": False, "reason": str(e), "models": []}
+    # Out-of-process backend status rides along so Settings can explain the
+    # ComfyUI-served entries (or their absence) in the same breath.
     try:
-        ok, reason = local.available()
-        return {
-            "available": ok,
-            "reason": reason,
-            "device": local._device() if ok else None,
-            "models": local.discover_models() if ok else [],
-        }
+        c_ok, c_reason = comfy_generator.available()
+        out["comfy"] = {"available": c_ok, "reason": c_reason}
     except Exception as e:
-        return {"available": False, "reason": str(e), "models": []}
+        out["comfy"] = {"available": False, "reason": str(e)}
+    return out
 
 
 @app.get("/gemini/models")
