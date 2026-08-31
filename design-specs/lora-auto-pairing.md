@@ -120,3 +120,59 @@ shows one entry. Cost note for the picker label if slower than SDXL Turbo.
   bundling anything into a sidecar we document.
 - **Scale defaults matter** — a paired LoRA at the wrong scale is worse than
   none; Phase 4 includes an A/B at fixed seed before freezing the sidecar.
+
+---
+
+## Phase 0 results — 2026-08-31
+
+### Gate 1 — diffusers support: ✅ GREEN (better than assumed)
+
+`diffusers 0.40.0` (installed) ships `Krea2Pipeline`, `Krea2Transformer2DModel`
+and Turbo modular variants; `transformers 5.16.1` has Qwen3VL. No upstream
+wait. Pipeline components: scheduler, vae, text_encoder (Qwen3VL-4B),
+tokenizer, transformer, with `is_distilled` for Turbo.
+
+### Gate 2 — acquisition: 🟡 BLOCKED ON USER ACTION
+
+- The official diffusers-format repos (`krea/Krea-2-Turbo`, `-Raw`) are
+  **gated** (auto-approved, but require an HF account, license acceptance on
+  the model page, and `hf auth login` on this machine — none present).
+- The ungated Comfy-Org single-file repackages are **unusable via diffusers**:
+  `Krea2Transformer2DModel` has no `from_single_file`, which also rules out
+  the community GGUFs. ComfyUI is not becoming a dependency.
+- The LoRA (below) is Civitai-login-gated as an NSFW-flagged model.
+
+### Gate 3 — memory: 🟠 AMBER, empirically untestable until gate 2 clears
+
+bf16 totals **35.7 GB** (transformer 26.3 + text encoder 8.9 + VAE 0.5)
+against 32 GB unified memory. The only in-budget route is sequential
+component use with the text encoder released after encoding — estimated peak
+~27–29 GB, knife-edge above OS+app overhead. fp8-scaled files can't enter
+through diffusers (no single-file path), and MPS has no fp8 compute anyway.
+Expected speed if it fits: ~13B-param DiT ⇒ roughly 20 s/step on this M4 ⇒
+**~2.5–3 min/image at Turbo's 8 steps** — Turbo's speed advantage does not
+survive this hardware. The definitive fit/thrash test needs the download,
+which needs gate 2.
+
+### Gate 4 — the LoRA: ✅ located, with a content-safety flag
+
+"**Realism Engine Ideogram 4 + Krea 2**" (Civitai model 2688234), version
+**Krea2 v3.0**, 1.53 GB, base model "Krea 2", recommended strength **+0.8**
+(range 0.5–1.0). License permits local + commercial use.
+**⚠️ The model is NSFW-flagged on Civitai and marketed as an uncensored
+realism finetune.** This app is built for a six-year-old and the local
+generation path carries **no content guardrail** (documented in CLAUDE.md).
+Pairing this LoRA invisibly into the Settings picker of a kids' storybook
+app is a product decision to make with eyes open, not a default. A
+photorealism LoRA without the uncensored branding may fit the app better;
+the pairing machinery is identical either way.
+
+### Verdict
+
+**Phase 3 (Krea 2) parks** until the user: accepts the license on
+huggingface.co/krea/Krea-2-Turbo while signed in, runs `hf auth login` here,
+and (for the LoRA) downloads from Civitai while signed in. After that, one
+~36 GB download and a timing run completes gate 3 with real numbers.
+**Phases 1–2 proceed now** — the pairing core proves out on the SDXL
+Chinese-style-illustration LoRA already on disk, and Krea 2 slots in later
+without rework.
