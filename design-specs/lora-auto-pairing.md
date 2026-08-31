@@ -176,3 +176,40 @@ and (for the LoRA) downloads from Civitai while signed in. After that, one
 **Phases 1–2 proceed now** — the pairing core proves out on the SDXL
 Chinese-style-illustration LoRA already on disk, and Krea 2 slots in later
 without rework.
+
+---
+
+## K4 results — 2026-08-31: FAIL on this hardware. Krea 2 disabled, not deleted.
+
+Four attempts, one consistent mechanism:
+
+| Attempt | Outcome |
+|---|---|
+| Job API, cpu-offload (page cache warm) | Load ≤20 s; **denoise healthy at ~5 s/step**; VAE decode wedged 12+ min; killed |
+| Standalone, cpu-offload (cold) | Python killed silently by the kernel during load |
+| Offload + VAE pinned on MPS | 9+ min in uninterruptible I/O inside a weight `.to()` copy; killed |
+| No offload; TE on CPU, transformer+VAE pinned | Wedged in the one-time ~26.8 GB MPS wire; killed at user request |
+
+The DiT itself performs (~5 s/step when resident). The failure is memory: any
+strategy touches a ~26 GB transfer or working set, and on a 32 GB machine
+running a browser, this server and a dev session, that lands the process in
+**uninterruptible page-in (state U) for minutes** — sometimes never
+returning. cpu-offload is strictly worse (it repeats the transfer at every
+phase boundary; the "12-minute decode" was really the transformer/VAE
+staging shuffle). This is not a labelling problem; a model that wedges the
+server worker must not be offered.
+
+**Actions taken:** new `disabled: true` sidecar key — the model stays on
+disk and internally resolvable, but discovery never offers it. The picker no
+longer lists Krea 2. All K2 backend code stays: correct, tested, dormant.
+
+**What would change the verdict:** (a) more unified memory (48 GB+ runs
+this trivially); (b) diffusers gaining a quantized (int8/GGUF) load path for
+Krea2Transformer2DModel — the community GGUFs exist but nothing in diffusers
+can eat them; (c) the out-of-process route (Draw Things / ComfyUI run Krea 2
+quantized today) — option B from local-image-generation D1, a real but
+separate integration. Re-enabling is deleting one sidecar line.
+
+**Plan consequence:** L-phases (LoRA auto-pairing) proceed on SD/SDXL as
+designed — the pairing machinery was always architecture-agnostic. The
+"Realism Engine Krea 2" pairing parks with its base model.

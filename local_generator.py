@@ -102,6 +102,8 @@ _SIDECAR_KEYS = {
     "label":         lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
     "negative":      lambda v: v.strip() if isinstance(v, str) and v.strip() else None,
     "cache_unsafe":  lambda v: bool(v) if isinstance(v, bool) else None,
+    # A model on disk that must not be offered (e.g. hardware can't run it).
+    "disabled":      lambda v: bool(v) if isinstance(v, bool) else None,
     # Prompt dialect the checkpoint expects — used by refine compatibility to
     # demote tag-trained models (Animagine) for natural-language sources.
     "prompt_style":  lambda v: v if v in ("natural", "tags") else None,
@@ -285,6 +287,8 @@ def discover_models() -> list[dict]:
     entries += _folder_models()
     for model_id, filename, kind in entries:
         ms = _model_settings(model_id)
+        if ms.get("disabled"):
+            continue   # present on disk, deliberately not offered
 
         # A sidecar can pre-declare a model cache-unsafe (e.g. a checkpoint
         # known to NaN-poison reused pipelines), sparing the runtime guard its

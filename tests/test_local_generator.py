@@ -599,3 +599,14 @@ def test_refine_rejects_krea2_models(models_dir):
     with pytest.raises(ValueError, match="not available for Krea 2"):
         local_generator.refine(source=PILImage.new("RGB", (64, 64)),
                                prompt="p", model_id="local:krea2-turbo")
+
+
+def test_disabled_sidecar_removes_model_from_discovery(models_dir):
+    """A model the hardware can't run stays on disk but is never offered —
+    offering it would wedge the server in uninterruptible page-in (K4)."""
+    _folder_model(models_dir, "krea2-turbo")
+    _sidecar(models_dir, "krea2-turbo", {"disabled": True})
+    assert local_generator.discover_models() == []
+    # still resolvable internally (regenerate of old images, future re-enable)
+    path, kind = local_generator._resolve("local:krea2-turbo")
+    assert kind == "krea2"
