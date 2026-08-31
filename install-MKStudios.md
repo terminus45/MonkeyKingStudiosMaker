@@ -12,7 +12,7 @@ If you are an AI agent installing this app, follow the **Steps** below in order.
 
 1. Run each command from the **repository root** (the folder containing `main.py` and `start.sh`).
 2. After each step, run its **Verify** check before moving on. If a check fails, see **Troubleshooting** — do not continue past a failed step.
-3. **Do not** install `torch`, `diffusers`, `transformers`, or any ML/GPU packages — they were removed from this project. `requirements.txt` is the complete and only dependency list.
+3. **Do not** install `torch`, `diffusers`, `transformers`, or any ML/GPU packages as part of a normal install. `requirements.txt` is the complete dependency list for the app as shipped, and the app generates images through cloud APIs by default. Those packages are now available as a deliberate opt-in via `requirements-local.txt` (on-device image generation) — install them **only if the user explicitly asks for local generation**, never as part of the default setup. They add several GB and a much larger dependency surface.
 4. The server **starts fine with no API keys**. Do not block installation on keys; set them last (Step 5) or tell the user they can add them later in the in-app **Settings** page.
 5. `start.sh` runs in the foreground with `--reload` (it does not return). To verify the server in an automated/non-interactive context, start it in the background, poll `GET /health`, then stop it — see Step 6.
 6. Never commit or print the contents of `.env` or `config.json` (they hold secrets).
@@ -141,7 +141,7 @@ With the server running and a `GEMINI_API_KEY` set:
 | `pip install` errors on a package | Ensure the venv is active (Step 2) and pip is current: `pip install --upgrade pip`, then retry. |
 | Port 8000 already in use | `./stopServer.sh`, or set `PORT=8080` in `.env` and restart (open the matching URL). |
 | A feature says "add your key in Settings" | That feature's API key isn't set — add it in **Settings** or `.env` (Step 5). Not an install failure. |
-| Tempted to install `torch`/`diffusers` | Don't — they were removed. The app uses cloud APIs only; `requirements.txt` is complete. |
+| Tempted to install `torch`/`diffusers` | Not for a normal install — the app generates via cloud APIs and `requirements.txt` is complete. They are an opt-in extra (`requirements-local.txt`) for on-device generation only, and only if the user asks. |
 | `permission denied: ./start.sh` | `chmod +x start.sh stopServer.sh`, then retry. |
 
 ---

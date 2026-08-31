@@ -204,19 +204,32 @@ const CG_DRAFT_KEY = 'monkeyking_cg_draft';
 
 async function loadGeminiModels() {
   try {
-    const res = await fetch(`${API}/gemini/models`);
+    // /models returns cloud + local, each tagged with a `backend`.
+    const res = await fetch(`${API}/models`);
     if (!res.ok) return; // leave hardcoded fallback options in place
     const data = await res.json();
     const models = data.models || [];
     if (models.length === 0) return;
 
-    // Rebuild the select with API data
+    // Rebuild the select with API data, grouped by backend so the cost
+    // difference between a paid cloud call and a free local one is obvious.
     settingsCgModel.innerHTML = '';
-    models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.name || m.id;
-      settingsCgModel.appendChild(opt);
+    const groups = [
+      { backend: 'gemini', label: 'Cloud' },
+      { backend: 'local',  label: 'On this Mac' },
+    ];
+    groups.forEach(({ backend, label }) => {
+      const inGroup = models.filter(m => (m.backend || 'gemini') === backend);
+      if (inGroup.length === 0) return;
+      const og = document.createElement('optgroup');
+      og.label = label;
+      inGroup.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name || m.id;
+        og.appendChild(opt);
+      });
+      settingsCgModel.appendChild(og);
     });
 
     // Default to Imagen 4 Fast (cheapest), falling back to the first imagen model;
@@ -241,6 +254,23 @@ async function loadGeminiModels() {
     } catch { /* corrupted draft */ }
   } catch {
     // Leave hardcoded options in place — silently ignore (matches CG behavior)
+  }
+}
+
+// Explain the "On this Mac" group — or its absence. Without this an empty
+// local section is indistinguishable from a broken one.
+async function loadLocalStatus() {
+  const el = document.getElementById('settingsLocalStatus');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/models/local/status`);
+    if (!res.ok) return;
+    const s = await res.json();
+    el.textContent = s.available
+      ? `On-device generation ready (${s.device}) — ${s.models.length} local model${s.models.length === 1 ? '' : 's'}, free but slower`
+      : `On-device generation unavailable — ${s.reason}`;
+  } catch {
+    /* non-fatal: the cloud models still work */
   }
 }
 
@@ -383,6 +413,7 @@ settingsPages.addEventListener('change', () => {
   await checkHealth();
   await loadKeys();
   await loadGeminiModels();
+  loadLocalStatus();          // non-blocking: cloud models work regardless
   restoreAspect();
   restoreLang();
   restorePages();

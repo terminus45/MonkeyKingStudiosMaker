@@ -60,6 +60,7 @@ const imageViewerCaption  = document.getElementById('imageViewerCaption');
 
 // ── State ───────────────────────────────────────────────────────────────────
 let activeTab = 'none';
+let _loadedImages = [];   // last-fetched Images-tab records, for lineage lookups
 const panelLoaded = { images: false, books: false, models: false };
 let lastViewBtn = null;
 
@@ -161,6 +162,7 @@ async function loadImages() {
     if (!res.ok) throw new Error((await res.json()).detail || `Error ${res.status}`);
     const data   = await res.json();
     const images = data.images || [];
+    _loadedImages = images;   // kept for lineage lookups in the info panel
 
     if (images.length === 0) {
       imagesEmpty.textContent = 'No saved images yet — make one in the Character Generator!';
@@ -206,6 +208,11 @@ function buildImageCard(img) {
         data-action="reuse-image"
         aria-label="Reuse this prompt in the Character Generator"
       >↺ Reuse</button>
+      <button
+        class="book-action-btn"
+        data-action="image-info"
+        aria-label="Show generation details"
+      >ⓘ Info</button>
       <a
         class="book-action-btn"
         href="${API}/image/${escHtml(img.filename)}"
@@ -224,6 +231,7 @@ function buildImageCard(img) {
   card.querySelector('[data-action="view-image"]').addEventListener('click', () => openImageViewer(img));
   card.querySelector('[data-action="make-figure"]').addEventListener('click', e => makeFigureFromImage(e, img));
   card.querySelector('[data-action="reuse-image"]').addEventListener('click', () => reuseImagePrompt(img));
+  card.querySelector('[data-action="image-info"]').addEventListener('click', () => openImageViewer(img, { withMeta: true }));
   card.querySelector('[data-action="delete-image"]').addEventListener('click', e => deleteImage(e, img.id, card));
   return card;
 }
@@ -354,7 +362,7 @@ async function makeFigureFromImage(e, img) {
 // aspect ratio and a tall portrait can't run off the bottom of the screen.
 let _imgViewerLastFocus = null;
 
-function openImageViewer(img) {
+function openImageViewer(img, opts) {
   const promptText = img.prompt || '';
   // Property assignment, not innerHTML — no escaping needed, and no HTML sink.
   imageViewerImg.src = `${API}/image/${img.filename}`;
@@ -362,10 +370,104 @@ function openImageViewer(img) {
   imageViewerCaption.textContent = promptText;
   imageViewerCaption.style.display = promptText ? 'block' : 'none';
 
+  const metaBox = document.getElementById('imageViewerMeta');
+  metaBox.classList.add('hidden');
+  metaBox.textContent = '';
+  if (opts && opts.withMeta) renderImageMeta(img, metaBox);
+
   _imgViewerLastFocus = document.activeElement;
   imageViewerModal.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
   imageViewerClose.focus();
+}
+
+// ── Generation details panel (ⓘ Info) ────────────────────────────────────────
+// Built entirely with createElement/textContent — meta values come from user
+// prompts and must never reach an HTML sink.
+async function renderImageMeta(img, box) {
+  let meta = img.meta || null;
+  if (!meta) {
+    // Legacy record or manifest predating metadata — the PNG itself may know.
+    try {
+      const res = await fetch(`${API}/image/${img.filename}/meta`);
+      if (res.ok) meta = await res.json();
+    } catch { /* offline — fall through to the empty message */ }
+  }
+
+  box.textContent = '';
+  box.classList.remove('hidden');
+
+  if (!meta || Object.keys(meta).length === 0) {
+    const p = document.createElement('p');
+    p.className = 'image-viewer-meta-empty';
+    p.textContent = 'No generation details recorded — this image predates metadata.';
+    box.appendChild(p);
+    return;
+  }
+
+  const rows = [
+    ['Model',    meta.model_id],
+    ['Backend',  meta.backend],
+    ['Seed',     meta.seed],
+    ['Sampler',  meta.sampler],
+    ['Steps',    meta.steps],
+    ['Guidance', meta.guidance],
+    ['Size',     meta.width && meta.height ? `${meta.width}×${meta.height}` : null],
+    ['Hires',    meta.hires && meta.hires.ran
+                   ? `${meta.hires.width}×${meta.hires.height} @ ${meta.hires.denoise}`
+                   : null],
+    ['Refined from', meta.parent_filename || null],
+    ['Prompt',   meta.prompt_final],
+  ];
+  const table = document.createElement('table');
+  table.className = 'image-viewer-meta-table';
+  for (const [label, value] of rows) {
+    if (value === null || value === undefined || value === '') continue;
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.textContent = label;
+    const td = document.createElement('td');
+    td.textContent = String(value);
+    tr.append(th, td);
+    table.appendChild(tr);
+  }
+  box.appendChild(table);
+
+  // Lineage: jump to the parent image if it is in the loaded set.
+  if (meta.parent_filename) {
+    const parentRec = (_loadedImages || []).find(r => r.filename === meta.parent_filename);
+    if (parentRec) {
+      const btn = document.createElement('button');
+      btn.className = 'settings-btn';
+      btn.textContent = '↰ View original';
+      btn.addEventListener('click', () => openImageViewer(parentRec, { withMeta: true }));
+      box.appendChild(btn);
+    }
+  }
+
+  // Regenerate — only ever offered when the recipe is honestly reproducible.
+  if (meta.reproducible) {
+    const btn = document.createElement('button');
+    btn.className = 'settings-btn';
+    btn.textContent = '🎲 Regenerate';
+    btn.title = 'Re-render from this exact recipe (same seed and settings)';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const res = await fetch(`${API}/regenerate/job`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: img.filename }),
+        });
+        if (!res.ok) throw new Error((await res.json()).detail || `Error ${res.status}`);
+        btn.textContent = '✓ Started — refresh Images in a minute';
+      } catch (err) {
+        btn.textContent = `⚠ ${err.message}`;
+        btn.disabled = false;
+      }
+    });
+    box.appendChild(btn);
+  }
 }
 
 function closeImageViewer() {

@@ -510,3 +510,32 @@
   .gallery-image-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-model-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Generation details panel (ⓘ Info in the image lightbox) ── */
+.image-viewer-meta {
+  max-width: min(85vw, 640px);
+  max-height: 32vh;
+  overflow-y: auto;
+  background: rgba(15,17,41,.92);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: .75rem .9rem;
+  margin-top: .5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+.image-viewer-meta.hidden { display: none; }
+.image-viewer-meta-table { border-collapse: collapse; width: 100%; }
+.image-viewer-meta-table th {
+  text-align: left; vertical-align: top; white-space: nowrap;
+  font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: rgba(255,255,255,.5);
+  padding: .18rem .8rem .18rem 0;
+}
+.image-viewer-meta-table td {
+  font-size: .8rem; color: rgba(255,255,255,.88);
+  font-family: 'Space Mono', monospace;
+  word-break: break-word; padding: .18rem 0;
+}
+.image-viewer-meta-empty { font-size: .8rem; color: rgba(255,255,255,.55); }

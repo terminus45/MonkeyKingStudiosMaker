@@ -311,7 +311,7 @@ def test_existing_mode_partial_map_regenerates_only_missing_pages(client, tmp_di
         calls.append(content_prompt)
         return "FAKE_IMAGE_OBJECT"
 
-    def _fake_save_image(image, filename):
+    def _fake_save_image(image, filename, meta=None):
         _write_dummy_png(tmp_dirs["output"], filename)
 
     monkeypatch.setattr(main.gemini_generator, "generate", _fake_generate)
@@ -507,7 +507,7 @@ def test_semaphore_released_after_job_completes(client, tmp_dirs, default_keys, 
     def _fake_generate(**kwargs):
         return "FAKE_IMAGE_OBJECT"
 
-    def _fake_save_image(image, filename):
+    def _fake_save_image(image, filename, meta=None):
         _write_dummy_png(tmp_dirs["output"], filename)
 
     monkeypatch.setattr(main.gemini_generator, "generate", _fake_generate)
@@ -566,7 +566,7 @@ def test_full_prompt_mode_job_reaches_done_zh_with_practice_sheet(tmp_dirs, monk
     })
     monkeypatch.setattr(main.gemini_generator, "generate", lambda **k: "FAKE_IMAGE_OBJECT")
     monkeypatch.setattr(main.gemini_generator, "save_image",
-                         lambda image, filename: _write_dummy_png(tmp_dirs["output"], filename))
+                         lambda image, filename, meta=None: _write_dummy_png(tmp_dirs["output"], filename))
     monkeypatch.setattr(main.book_pdf, "render_pdf", _fake_render_pdf)
     monkeypatch.setattr(main.book_pdf, "merge_pdfs", _fake_merge_pdfs)
     # practice_sheet_local_mod is exercised FOR REAL here (pure ReportLab, no
@@ -600,7 +600,7 @@ def test_full_prompt_mode_job_reaches_done_ja_no_practice_sheet(tmp_dirs, monkey
     monkeypatch.setattr(main, "run_recheck", lambda **k: _echo_run_recheck(**k))
     monkeypatch.setattr(main.gemini_generator, "generate", lambda **k: "FAKE_IMAGE_OBJECT")
     monkeypatch.setattr(main.gemini_generator, "save_image",
-                         lambda image, filename: _write_dummy_png(tmp_dirs["output"], filename))
+                         lambda image, filename, meta=None: _write_dummy_png(tmp_dirs["output"], filename))
     monkeypatch.setattr(main.book_pdf, "render_pdf", _fake_render_pdf)
     monkeypatch.setattr(main.book_pdf, "merge_pdfs", _fake_merge_pdfs)
 

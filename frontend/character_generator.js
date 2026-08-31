@@ -23,6 +23,7 @@ const cgErrorMsg      = document.getElementById('cgErrorMsg');
 const cgImageFrame    = document.getElementById('cgImageFrame');
 const cgEmptyState    = document.getElementById('cgEmptyState');
 const cgLoadingState  = document.getElementById('cgLoadingState');
+const cgLoadingLabel  = document.getElementById('cgLoadingLabel');
 const cgPortraitImg   = document.getElementById('cgPortraitImg');
 const cgActionRow          = document.getElementById('cgActionRow');
 const cgDownloadBtn        = document.getElementById('cgDownloadBtn');
@@ -30,6 +31,18 @@ const cgUseAsCoverBtn      = document.getElementById('cgUseAsCoverBtn');
 const cgCreateFigureBtn    = document.getElementById('cgCreateFigureBtn');
 const cgCreateFigureLabel  = document.getElementById('cgCreateFigureLabel');
 const cgCreateFigureSpinner = document.getElementById('cgCreateFigureSpinner');
+
+const cgSeedLine      = document.getElementById('cgSeedLine');
+const cgSeedText      = document.getElementById('cgSeedText');
+const cgSeedLock      = document.getElementById('cgSeedLock');
+const cgRefinePanel   = document.getElementById('cgRefinePanel');
+const cgRefineInput   = document.getElementById('cgRefineInput');
+const cgRefineHint    = document.getElementById('cgRefineHint');
+const cgRefineButtons = [
+  document.getElementById('cgRefineTweak'),
+  document.getElementById('cgRefineChange'),
+  document.getElementById('cgRefineReimagine'),
+];
 
 const cgStrip         = document.getElementById('cgStrip');
 const cgStripScroll   = document.getElementById('cgStripScroll');
@@ -51,6 +64,233 @@ function saveSession() {
       active: currentFilename,
     }));
   } catch { /* quota / private-mode */ }
+}
+
+// ── In-flight generation job ─────────────────────────────────────────────────
+// Generation runs server-side as a job we poll, rather than on one long-held
+// HTTP request. A local model can take minutes, and holding a connection open
+// that long loses the result whenever the tab is backgrounded or a proxy times
+// the connection out — even though the worker finished and wrote the PNG.
+// Persisting the job id means navigating away and back re-attaches instead.
+// Same shape as figure_maker.js's monkeyking_fm_job.
+const CG_JOB_KEY = 'monkeyking_cg_job';
+const CG_JOB_MAX_AGE_MS = 30 * 60 * 1000;   // don't resume a job too old to be live
+const CG_POLL_MS = 1500;
+
+let _currentJobId = null;   // single-flight guard: a resumed loop and a fresh
+                            // Generate must never poll the same UI at once.
+
+function saveJob(job_id, description) {
+  try {
+    localStorage.setItem(CG_JOB_KEY, JSON.stringify({
+      job_id, description, started_at: Date.now(),
+    }));
+  } catch { /* quota / private-mode */ }
+}
+
+function clearJob() {
+  try { localStorage.removeItem(CG_JOB_KEY); } catch { /* private-mode */ }
+}
+
+function readJob() {
+  try { return JSON.parse(localStorage.getItem(CG_JOB_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function setLoadingProgress(rec) {
+  if (!cgLoadingLabel) return;
+  const pct = rec && typeof rec.progress === 'number' ? rec.progress : null;
+  cgLoadingLabel.textContent =
+    pct === null || pct === 0 ? 'Generating your character…'
+                              : `Generating your character… ${pct}%`;
+}
+
+/**
+ * Poll a job to completion and drive the UI. Safe to call from either a fresh
+ * Generate or a resume; the _currentJobId guard keeps them from overlapping.
+ */
+async function pollJob(job_id, description) {
+  _currentJobId = job_id;
+  setGenerating(true);
+  showLoading();
+
+  while (_currentJobId === job_id) {
+    let rec;
+    try {
+      const res = await fetch(`${API}/generate/status/${job_id}`);
+      if (res.status === 404) {
+        // The server forgot the job — most likely it restarted mid-render.
+        throw new Error('That generation was lost (did the server restart?). Please try again.');
+      }
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      rec = await res.json();
+    } catch (err) {
+      // A transient network blip must not kill a job that is still running:
+      // wait and poll again rather than failing the whole generation.
+      if (err instanceof TypeError) {
+        await new Promise(r => setTimeout(r, CG_POLL_MS));
+        continue;
+      }
+      clearJob();
+      _currentJobId = null;
+      showEmpty();
+      showError(err.message);
+      setGenerating(false);
+      return;
+    }
+
+    setLoadingProgress(rec);
+
+    if (rec.stage === 'done' && rec.filename) {
+      clearJob();
+      _currentJobId = null;
+      onGenerated(rec.filename, description, rec.model, rec.seed);
+      setGenerating(false);
+      return;
+    }
+    if (rec.stage === 'error') {
+      clearJob();
+      _currentJobId = null;
+      showEmpty();
+      showError(rec.error || 'Generation failed. Please try again.');
+      setGenerating(false);
+      return;
+    }
+
+    await new Promise(r => setTimeout(r, CG_POLL_MS));
+  }
+}
+
+// Prompt metadata for the gallery save. Persisted alongside the job so a
+// generation resumed in a fresh page load still records the story and style
+// it was made with, not blanks.
+const CG_META_KEY = 'monkeyking_cg_job_meta';
+let _pendingMeta = null;
+
+function savePendingMeta() {
+  try { localStorage.setItem(CG_META_KEY, JSON.stringify(_pendingMeta)); }
+  catch { /* quota / private-mode */ }
+}
+
+function readPendingMeta() {
+  if (_pendingMeta) return _pendingMeta;
+  try { return JSON.parse(localStorage.getItem(CG_META_KEY) || 'null'); }
+  catch { return null; }
+}
+
+// ── Seed display + lock ──────────────────────────────────────────────────────
+// Only local generations have a seed; the line hides for cloud images so it
+// never implies a reproducibility that doesn't exist.
+let _lastSeed = null;
+
+function showSeed(seed) {
+  _lastSeed = (typeof seed === 'number') ? seed : null;
+  if (_lastSeed === null) {
+    cgSeedLine.classList.add('hidden');
+    cgSeedLock.checked = false;
+    return;
+  }
+  cgSeedText.textContent = `Seed ${_lastSeed}`;
+  cgSeedLine.classList.remove('hidden');
+}
+
+// ── Refine panel ─────────────────────────────────────────────────────────────
+function currentModelIsLocal() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}');
+    return typeof draft.model === 'string' && draft.model.startsWith('local:');
+  } catch { return false; }
+}
+
+function updateRefinePanel() {
+  const local = currentModelIsLocal();
+  cgRefineButtons.forEach(b => { b.disabled = !local; });
+  cgRefineInput.disabled = !local;
+  cgRefineHint.innerHTML = local
+    ? ''
+    : 'Refinement runs on-device — choose an “On this Mac” model in <a href="settings.html">Settings</a>.';
+}
+
+async function startRefine(strength) {
+  const instruction = cgRefineInput.value.trim();
+  if (!instruction) { shakeField(cgRefineInput); return; }
+  if (!currentFilename) return;
+
+  const draft = (() => { try { return JSON.parse(localStorage.getItem(CG_DRAFT_KEY) || '{}'); } catch { return {}; } })();
+  const model = draft.model || '';
+  const description = (cgUseAsCoverBtn.dataset.description || sharedCharacterInput.value.trim());
+
+  hideError();
+  _pendingMeta = {
+    character: `${description} — ${instruction}`,
+    story: '', style: '', model,
+  };
+  savePendingMeta();
+
+  try {
+    const res = await fetch(`${API}/refine/job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: currentFilename,
+        instruction,
+        strength,
+        model_id: model,
+        seed: cgSeedLock.checked && _lastSeed !== null ? _lastSeed : -1,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || `Server error ${res.status}`);
+    const { job_id } = await res.json();
+    cgRefineInput.value = '';
+    saveJob(job_id, _pendingMeta.character);
+    pollJob(job_id, _pendingMeta.character);
+  } catch (err) {
+    showError(err.message || 'Refinement failed. Please try again.');
+  }
+}
+
+cgRefineButtons.forEach(btn =>
+  btn.addEventListener('click', () => startRefine(parseFloat(btn.dataset.strength))));
+
+/** Shared completion path for both a fresh generation and a resumed one. */
+function onGenerated(filename, description, model, seed) {
+  const meta = readPendingMeta() || {};
+  const desc = description || meta.character || '';
+
+  showImage(filename, desc);
+  addThumbToStrip(filename, desc);
+  showSeed(seed);
+  updateRefinePanel();
+
+  sessionImages.push({ filename, description: desc });
+  saveSession();
+
+  // Fire-and-forget: save to gallery (ignore failures)
+  fetch(`${API}/gallery/image`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      filename,
+      prompt:       desc,
+      story:        meta.story || '',
+      style_prompt: meta.style || '',
+      model:        model || meta.model || '',
+    }),
+  }).catch(() => {/* silently ignore gallery save errors */});
+
+  _pendingMeta = null;
+  try { localStorage.removeItem(CG_META_KEY); } catch { /* private-mode */ }
+}
+
+/** Re-attach to a generation that was running when the page was left. */
+function resumeJobIfAny() {
+  const stored = readJob();
+  if (!stored || !stored.job_id) return;
+  if (!stored.started_at || (Date.now() - stored.started_at) > CG_JOB_MAX_AGE_MS) {
+    clearJob();
+    return;
+  }
+  pollJob(stored.job_id, stored.description || '');
 }
 
 // ── Health check ────────────────────────────────────────────────────────────
@@ -127,6 +367,7 @@ function showImage(filename, description) {
 
   // Cover button data
   cgUseAsCoverBtn.dataset.filename = filename;
+  cgUseAsCoverBtn.dataset.description = description;   // refine anchors to this
   currentFilename = filename;
 
   // Enable the Create Figure button now that a portrait is ready
@@ -251,10 +492,17 @@ cgGenerateBtn.addEventListener('click', async () => {
     provider:             'gemini',
     gemini_model:         model,
     gemini_aspect_ratio:  ar,
+    // 🔒 keep seed: reuse the displayed image's seed so a tweaked prompt
+    // keeps its composition. Local models only; -1 = draw a fresh one.
+    seed: (cgSeedLock && cgSeedLock.checked && _lastSeed !== null) ? _lastSeed : -1,
   };
 
+  // Remember what this generation was for, so the gallery save after a
+  // resumed job still has the story/style that produced it.
+  _pendingMeta = { character, story, style, model };
+
   try {
-    const res = await fetch(`${API}/generate`, {
+    const res = await fetch(`${API}/generate/job`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(payload),
@@ -264,32 +512,13 @@ cgGenerateBtn.addEventListener('click', async () => {
       throw new Error((await res.json()).detail || `Server error ${res.status}`);
     }
 
-    const data = await res.json();
-    const filename = data.filename;
-
-    showImage(filename, character);
-    addThumbToStrip(filename, character);
-
-    // Persist this session image so it survives navigation
-    sessionImages.push({ filename, description: character });
-    saveSession();
-
-    // Fire-and-forget: save to gallery (ignore failures)
-    fetch(`${API}/gallery/image`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        filename,
-        prompt:       character,
-        story,
-        style_prompt: style,
-        model,
-      }),
-    }).catch(() => {/* silently ignore gallery save errors */});
+    const { job_id } = await res.json();
+    saveJob(job_id, character);
+    savePendingMeta();
+    pollJob(job_id, character);      // not awaited: the handler is done here
   } catch (err) {
     showEmpty();
     showError(err.message || 'Generation failed. Please try again.');
-  } finally {
     setGenerating(false);
   }
 });
@@ -425,6 +654,16 @@ function restoreSession() {
 
   // Wire shared input listeners — bindFields populates fields and registers cross-tab sync
   wireSharedInputListeners();
+
+  // Refine availability depends on the selected model; keep it current even
+  // when Settings is changed in another tab (the draft lives in localStorage).
+  updateRefinePanel();
+  window.addEventListener('storage', e => {
+    if (e.key === CG_DRAFT_KEY) updateRefinePanel();
+  });
+
+  // Re-attach to a generation that was still running when this page was left.
+  resumeJobIfAny();
 })();
 
 // Periodic health ping every 30 s

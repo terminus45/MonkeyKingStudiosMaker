@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from config import (
 )
 import book_pdf
 import gemini_generator
+import image_backends
 import meshy_generator
 import practice_sheet as practice_sheet_mod
 import practice_sheet_local as practice_sheet_local_mod
@@ -82,13 +84,17 @@ class GenerateRequest(BaseModel):
     gemini_key: Optional[str] = None   # per-request override (mobile clients)
     width: int = 1024
     height: int = 1024
+    seed: int = -1                 # local backends only: -1 draws (and records) one
     return_base64: bool = False
     # Legacy SD fields are accepted but ignored (pydantic default = ignore unknown)
 
 
 class GenerateResponse(BaseModel):
     filename: str
-    seed: int
+    # The seed actually used (local backends), or None — cloud models expose no
+    # seed and a repeat is a new roll. Was hardcoded -1 for years; None is the
+    # honest value and no frontend reads this field.
+    seed: Optional[int] = None
     loaded_model: Optional[str] = None
     image_base64: Optional[str] = None
 
@@ -127,11 +133,10 @@ def api_docs_markdown():
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
-    req.style_prompt = _safe_style(req.style_prompt)
+    # The safety suffix is applied inside image_backends.generate(), which
+    # knows the backend — cloud gets it, local does not.
     try:
-        if not req.gemini_model:
-            raise ValueError("No Gemini model selected.")
-        image = gemini_generator.generate(
+        result = image_backends.generate(
             content_prompt=req.prompt,
             style_prompt=req.style_prompt,
             negative_prompt=req.negative_prompt or "",
@@ -139,38 +144,344 @@ def generate(req: GenerateRequest):
             aspect_ratio=req.gemini_aspect_ratio,
             width=req.width,
             height=req.height,
+            seed=req.seed,
             api_key=req.gemini_key or settings_store.get_key("GEMINI_API_KEY"),
         )
         filename = f"{uuid.uuid4().hex}.png"
-        gemini_generator.save_image(image, filename)
+        image_backends.save_result(result, filename)
         b64 = None
         if req.return_base64:
             buf = io.BytesIO()
-            image.save(buf, format="PNG")
+            result.image.save(buf, format="PNG")
             b64 = base64.b64encode(buf.getvalue()).decode()
         return GenerateResponse(
             filename=filename,
-            seed=-1,
+            seed=result.seed,
             loaded_model=req.gemini_model,
             image_base64=b64,
         )
+    except image_backends.UnknownModelError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Image generation as a job ────────────────────────────────────────────────
+# POST /generate holds one HTTP connection open for the whole render. That is
+# fine for a 5 s cloud call and fragile for a 3 min local one: backgrounding the
+# tab (iOS Safari especially) or any idle proxy timeout drops the connection,
+# and the result is lost even though the worker finished and wrote the PNG.
+#
+# Same shape as _figure_jobs / _practice_jobs / _book_pdf_jobs: submit, poll,
+# and let the client persist the job id so navigation is survivable.
+_image_jobs: dict[str, dict] = {}
+_image_jobs_lock = threading.Lock()
+_IMAGE_JOB_TTL_S = 3600          # finished jobs are pruned after an hour
+
+
+def _image_job_update(job_id: str, patch: dict) -> None:
+    with _image_jobs_lock:
+        if job_id in _image_jobs:
+            _image_jobs[job_id].update(patch)
+
+
+def _image_job_read(job_id: str) -> Optional[dict]:
+    with _image_jobs_lock:
+        rec = _image_jobs.get(job_id)
+        return dict(rec) if rec else None
+
+
+def _image_jobs_prune() -> None:
+    """Drop finished jobs past their TTL so the store can't grow without bound."""
+    now = time.time()
+    with _image_jobs_lock:
+        for jid in [
+            j for j, r in _image_jobs.items()
+            if r.get("stage") in ("done", "error")
+            and now - r.get("finished_at", now) > _IMAGE_JOB_TTL_S
+        ]:
+            _image_jobs.pop(jid, None)
+
+
+def _gallery_save_record(filename: str, prompt: str, model: str) -> None:
+    """Server-side gallery append, for jobs no page is polling (regenerate).
+    Best-effort — mirrors the client's fire-and-forget semantics."""
+    try:
+        path = _resolve_image_path(filename)
+        record = {
+            "id": uuid.uuid4().hex[:8],
+            "filename": filename,
+            "prompt": prompt,
+            "story": None,
+            "style_prompt": None,
+            "model": model,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        meta = gemini_generator.read_image_metadata(path) if path else None
+        if meta:
+            record["meta"] = meta
+        _manifest_append(_IMAGES_MANIFEST, record)
+    except Exception:
+        pass
+
+
+def _run_image_job(job_id: str, req: "GenerateRequest", api_key: Optional[str],
+                   overrides: Optional[dict] = None,
+                   gallery_prompt: Optional[str] = None) -> None:
+    """Worker: generate one image and record the outcome on the job.
+
+    `overrides` are per-call local-backend parameter overrides (regeneration).
+    `gallery_prompt`, when set, makes the worker gallery-save the result
+    itself — used when no client page will be around to do it.
+    """
+    try:
+        _image_job_update(job_id, {"stage": "generating"})
+
+        def on_step(step: int, total: int) -> None:
+            _image_job_update(job_id, {
+                "step": step,
+                "total": total,
+                "progress": int(step / max(total, 1) * 100),
+            })
+
+        result = image_backends.generate(
+            content_prompt=req.prompt,
+            style_prompt=req.style_prompt,
+            negative_prompt=req.negative_prompt or "",
+            model_id=req.gemini_model,
+            aspect_ratio=req.gemini_aspect_ratio,
+            width=req.width,
+            height=req.height,
+            seed=req.seed,
+            api_key=api_key,
+            on_step=on_step,
+            local_overrides=overrides,
+        )
+        filename = f"{uuid.uuid4().hex}.png"
+        image_backends.save_result(result, filename)
+        if gallery_prompt is not None:
+            _gallery_save_record(filename, gallery_prompt, req.gemini_model)
+        _image_job_update(job_id, {
+            "stage": "done", "progress": 100,
+            "filename": filename, "seed": result.seed,
+            "finished_at": time.time(),
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        _image_job_update(job_id, {
+            "stage": "error", "error": str(e), "finished_at": time.time(),
+        })
+
+
+@app.post("/generate/job")
+def generate_job(req: GenerateRequest):
+    """Start a generation and return a job id immediately.
+
+    Prefer this over POST /generate for anything that might run long — it is
+    the only path that survives the client navigating away.
+    """
+    # Validate the model here so a bad id is a synchronous 400 rather than an
+    # error the caller only discovers by polling.
+    if image_backends.backend_for(req.gemini_model) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {req.gemini_model!r}")
+
+    _image_jobs_prune()
+    job_id = uuid.uuid4().hex
+    with _image_jobs_lock:
+        _image_jobs[job_id] = {
+            "job_id": job_id, "stage": "queued", "progress": 0,
+            "step": 0, "total": 0, "filename": None, "error": None,
+            "model": req.gemini_model, "started_at": time.time(),
+        }
+
+    key = req.gemini_key or settings_store.get_key("GEMINI_API_KEY")
+    threading.Thread(target=_run_image_job, args=(job_id, req, key), daemon=True).start()
+    return {"job_id": job_id}
+
+
+class RegenerateRequest(BaseModel):
+    filename: str
+
+
+@app.post("/regenerate/job")
+def regenerate_job(req: RegenerateRequest):
+    """Re-render an image from its own embedded recipe.
+
+    Only offered for local images (meta.reproducible) — cloud models expose no
+    seed, so a 'regenerate' there would just be a new roll. The stored
+    parameters override current config: reproduction uses what the image was
+    MADE with, not today's .env. The worker gallery-saves the result itself,
+    since the Gallery page does not poll jobs.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    path = _resolve_image_path(req.filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+    meta = gemini_generator.read_image_metadata(path)
+    if not meta or not meta.get("reproducible"):
+        raise HTTPException(
+            status_code=400,
+            detail="No reproducible recipe is recorded in this image.")
+    model_id = meta.get("model_id") or ""
+    if image_backends.backend_for(model_id) != "local":
+        raise HTTPException(
+            status_code=400,
+            detail=f"The model this image was made with ({model_id}) is no longer available.")
+
+    hires = meta.get("hires") or {}
+    gen_req = GenerateRequest(
+        prompt=meta.get("prompt_final") or "",
+        style_prompt="",                       # prompt_final is already composed
+        negative_prompt=meta.get("negative_final") or "",
+        gemini_model=model_id,
+        width=meta.get("width") or 1024,
+        height=meta.get("height") or 1024,
+        seed=meta.get("seed", -1),
+    )
+    overrides = {
+        "steps": meta.get("steps"),
+        "guidance": meta.get("guidance"),
+        "sampler": meta.get("sampler"),
+        "negative_raw": True,                  # negative_final is already composed
+        "hires_scale": (hires.get("scale") if hires.get("ran") else 1.0),
+        "hires_denoise": hires.get("denoise"),
+    }
+
+    _image_jobs_prune()
+    job_id = uuid.uuid4().hex
+    with _image_jobs_lock:
+        _image_jobs[job_id] = {
+            "job_id": job_id, "stage": "queued", "progress": 0,
+            "step": 0, "total": 0, "filename": None, "error": None,
+            "model": model_id, "kind": "regenerate",
+            "source": req.filename, "started_at": time.time(),
+        }
+    threading.Thread(
+        target=_run_image_job,
+        args=(job_id, gen_req, None, overrides, meta.get("prompt_final") or ""),
+        daemon=True).start()
+    return {"job_id": job_id}
+
+
+class RefineRequest(BaseModel):
+    filename: str                     # source image (any backend's output)
+    instruction: str                  # what to change
+    strength: float = 0.45            # 0.25 tweak / 0.45 change / 0.70 reimagine
+    model_id: str                     # must be a local model
+    seed: int = -1
+
+
+def _run_refine_job(job_id: str, path: str, src_filename: str, prompt: str,
+                    instruction: str, strength: float, model_id: str, seed: int) -> None:
+    try:
+        _image_job_update(job_id, {"stage": "generating"})
+
+        def on_step(step: int, total: int) -> None:
+            _image_job_update(job_id, {
+                "step": step, "total": total,
+                "progress": int(step / max(total, 1) * 100),
+            })
+
+        from PIL import Image as PILImage
+        with PILImage.open(path) as im:
+            source = im.convert("RGB")
+
+        result = image_backends.refine(
+            source=source,
+            prompt=prompt,
+            instruction=instruction,
+            parent_filename=src_filename,
+            model_id=model_id,
+            strength=strength,
+            seed=seed,
+            on_step=on_step,
+        )
+        filename = f"{uuid.uuid4().hex}.png"
+        image_backends.save_result(result, filename)
+        _image_job_update(job_id, {
+            "stage": "done", "progress": 100,
+            "filename": filename, "seed": result.seed,
+            "finished_at": time.time(),
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        _image_job_update(job_id, {
+            "stage": "error", "error": str(e), "finished_at": time.time(),
+        })
+
+
+@app.post("/refine/job")
+def refine_job(req: RefineRequest):
+    """img2img refinement of a saved image, as a poll-able job.
+
+    The refine prompt = the source's stored prompt_final (anchor, keeps the
+    subject) + the user's instruction. Falls back to the gallery record's
+    prompt for legacy images with no embedded metadata — they stay refinable.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    instruction = (req.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="Refinement instruction is empty.")
+    if image_backends.backend_for(req.model_id) != "local":
+        raise HTTPException(
+            status_code=400,
+            detail="Refinement runs on-device — select an 'On this Mac' model in Settings.")
+    path = _resolve_image_path(req.filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    meta = gemini_generator.read_image_metadata(path) or {}
+    anchor = meta.get("prompt_final")
+    if not anchor:
+        # Legacy image — the manifest may still know its prompt.
+        rec = next((r for r in _manifest_read(_IMAGES_MANIFEST)
+                    if r.get("filename") == req.filename), None)
+        anchor = (rec or {}).get("prompt") or ""
+    prompt = f"{anchor}, {instruction}" if anchor else instruction
+
+    _image_jobs_prune()
+    job_id = uuid.uuid4().hex
+    with _image_jobs_lock:
+        _image_jobs[job_id] = {
+            "job_id": job_id, "stage": "queued", "progress": 0,
+            "step": 0, "total": 0, "filename": None, "error": None,
+            "model": req.model_id, "kind": "refine",
+            "source": req.filename, "started_at": time.time(),
+        }
+    threading.Thread(
+        target=_run_refine_job,
+        args=(job_id, path, req.filename, prompt, instruction,
+              req.strength, req.model_id, req.seed),
+        daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/generate/status/{job_id}")
+def generate_job_status(job_id: str):
+    rec = _image_job_read(job_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Unknown or expired job id.")
+    return rec
 
 
 @app.post("/generate/stream")
 async def generate_stream(req: GenerateRequest):
     """SSE endpoint — emits step progress then a final done event with filename/seed."""
-    req.style_prompt = _safe_style(req.style_prompt)
+    # Safety suffix is applied per-backend inside image_backends.generate().
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
     def run():
         try:
-            if not req.gemini_model:
-                raise ValueError("No Gemini model selected.")
-            loop.call_soon_threadsafe(queue.put_nowait, {"step": 0, "total": 1})
-            image = gemini_generator.generate(
+            # Progress is reported by the backend rather than assumed here: a
+            # cloud call emits a single 0/1 step (as before), while a local
+            # pipeline can report each denoising step. Same protocol either way.
+            def on_step(step: int, total: int) -> None:
+                loop.call_soon_threadsafe(queue.put_nowait, {"step": step, "total": total})
+
+            result = image_backends.generate(
                 content_prompt=req.prompt,
                 style_prompt=req.style_prompt,
                 negative_prompt=req.negative_prompt or "",
@@ -178,14 +489,16 @@ async def generate_stream(req: GenerateRequest):
                 aspect_ratio=req.gemini_aspect_ratio,
                 width=req.width,
                 height=req.height,
+                seed=req.seed,
                 api_key=req.gemini_key or settings_store.get_key("GEMINI_API_KEY"),
+                on_step=on_step,
             )
             filename = f"{uuid.uuid4().hex}.png"
-            gemini_generator.save_image(image, filename)
+            image_backends.save_result(result, filename)
             loop.call_soon_threadsafe(queue.put_nowait, {
                 "done": True,
                 "filename": filename,
-                "seed": -1,
+                "seed": result.seed,
                 "loaded_model": req.gemini_model,
             })
         except Exception as e:
@@ -208,8 +521,49 @@ async def generate_stream(req: GenerateRequest):
     )
 
 
+@app.get("/image/{filename}/meta")
+def get_image_metadata(filename: str):
+    """Generation metadata embedded in a saved PNG, or {} for images that
+    predate metadata (they must render as 'nothing recorded', not error)."""
+    path = _resolve_image_path(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+    return gemini_generator.read_image_metadata(path) or {}
+
+
+@app.get("/models")
+def list_models():
+    """Every selectable image model, cloud and local, each tagged with a
+    `backend`. This is the allow-list /generate validates against."""
+    return {"models": image_backends.list_models()}
+
+
+@app.get("/models/local/status")
+def local_models_status():
+    """Whether on-device generation is usable, and why not if it isn't.
+
+    Lets Settings distinguish "extras not installed" from "no checkpoints
+    found" instead of just showing an empty section.
+    """
+    local = image_backends._local_module()
+    if local is None:
+        return {"available": False, "reason": "Local backend module not present", "models": []}
+    try:
+        ok, reason = local.available()
+        return {
+            "available": ok,
+            "reason": reason,
+            "device": local._device() if ok else None,
+            "models": local.discover_models() if ok else [],
+        }
+    except Exception as e:
+        return {"available": False, "reason": str(e), "models": []}
+
+
 @app.get("/gemini/models")
 def list_gemini_models():
+    """Cloud models only — unchanged, so existing clients keep working.
+    New callers should prefer GET /models."""
     return {"models": gemini_generator.GEMINI_MODELS}
 
 
@@ -857,7 +1211,8 @@ def gallery_image_add(req: GalleryImageRequest):
     """Register a generated image in the images manifest."""
     if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
         raise HTTPException(status_code=400, detail="Invalid filename format.")
-    if _resolve_image_path(req.filename) is None:
+    path = _resolve_image_path(req.filename)
+    if path is None:
         raise HTTPException(status_code=400, detail="Image file not found in output directory.")
     record = {
         "id": uuid.uuid4().hex[:8],
@@ -868,6 +1223,12 @@ def gallery_image_add(req: GalleryImageRequest):
         "model": req.model,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Enrich from the PNG's own embedded metadata rather than trusting (or
+    # requiring) the client to echo it back — the file is the source of truth,
+    # and older images without a chunk simply don't get a meta key.
+    meta = gemini_generator.read_image_metadata(path)
+    if meta:
+        record["meta"] = meta
     _manifest_append(_IMAGES_MANIFEST, record)
     return record
 
@@ -1727,7 +2088,7 @@ def _generate_book_pdf_page_image(pg: dict, gemini_model: str, style_suffix: str
     last_err: Optional[Exception] = None
     for _attempt in range(2):
         try:
-            image = gemini_generator.generate(
+            result = image_backends.generate(
                 content_prompt=prompt,
                 style_prompt=style_suffix,
                 negative_prompt="",
@@ -1738,7 +2099,7 @@ def _generate_book_pdf_page_image(pg: dict, gemini_model: str, style_suffix: str
                 api_key=gemini_key,
             )
             filename = f"{uuid.uuid4().hex}.png"
-            gemini_generator.save_image(image, filename)
+            image_backends.save_result(result, filename)
             return filename
         except Exception as e:
             last_err = e
@@ -1798,7 +2159,9 @@ def _run_book_pdf_job(job_id: str, req_data: dict, anthropic_key: Optional[str],
             _book_pdf_job_update(job_id, {"stage": "illustrating", "progress": 18})
             generated_images = req_data.get("generated_images") or {}
             gemini_model = req_data.get("gemini_model") or "imagen-4.0-fast-generate-001"
-            style_suffix = _safe_style(req_data.get("style_suffix") or "")
+            # Raw: image_backends.generate() adds the safety suffix for cloud
+            # backends only.
+            style_suffix = (req_data.get("style_suffix") or "").strip()
 
             def _reusable_filename(pnum) -> Optional[str]:
                 fname = generated_images.get(str(pnum)) or generated_images.get(pnum)
@@ -2010,5 +2373,27 @@ def book_pdf_download(job_id: str):
     )
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Serve the frontend with `Cache-Control: no-cache`.
+
+    There is no build step here, so asset filenames carry no content hash. A
+    browser that caches settings.js or style.css from memory will keep serving
+    a stale copy after an edit, with no way to bust it short of a hard reload
+    — which has already cost real debugging time once.
+
+    `no-cache` does not mean "do not store": it means "revalidate before
+    reusing". StaticFiles already emits an ETag and Last-Modified, so each
+    check is a conditional request that answers 304 with an empty body when
+    nothing changed. The cost is one round trip per asset, which is the right
+    trade for a same-origin app whose static files are local anyway.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        # setdefault: never clobber a more specific policy set upstream.
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
 # ── Frontend static files (must be last — catches everything not matched above) ──
-app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+app.mount("/", RevalidatingStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

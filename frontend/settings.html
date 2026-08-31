@@ -203,8 +203,9 @@
         <!-- Gemini model row -->
         <div class="settings-key-row">
           <div class="settings-key-label-group">
-            <label class="settings-key-label" for="settingsCgModel">Gemini Model</label>
-            <span class="settings-key-hint">Default Gemini model for image generation (Character Generator and Book Builder)</span>
+            <label class="settings-key-label" for="settingsCgModel">Image Model</label>
+            <span class="settings-key-hint">Used by Character Generator and Book Builder</span>
+            <span class="settings-key-hint" id="settingsLocalStatus" aria-live="polite"></span>
           </div>
           <div class="settings-model-select-group">
             <select id="settingsCgModel" aria-label="Gemini model for Character Generator">
