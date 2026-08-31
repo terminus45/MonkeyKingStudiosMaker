@@ -215,11 +215,13 @@ async function loadGeminiModels() {
     // difference between a paid cloud call and a free local one is obvious.
     settingsCgModel.innerHTML = '';
     const groups = [
-      { backend: 'gemini', label: 'Cloud' },
-      { backend: 'local',  label: 'On this Mac' },
+      { backends: ['gemini'],          label: 'Cloud' },
+      // comfy = out-of-process on this machine (via ComfyUI) — still free
+      // and on-device, so it sits with the local checkpoints.
+      { backends: ['local', 'comfy'],  label: 'On this Mac' },
     ];
-    groups.forEach(({ backend, label }) => {
-      const inGroup = models.filter(m => (m.backend || 'gemini') === backend);
+    groups.forEach(({ backends, label }) => {
+      const inGroup = models.filter(m => backends.includes(m.backend || 'gemini'));
       if (inGroup.length === 0) return;
       const og = document.createElement('optgroup');
       og.label = label;
