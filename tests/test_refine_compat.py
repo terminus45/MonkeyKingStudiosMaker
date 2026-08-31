@@ -148,3 +148,21 @@ def test_kind_prefers_metadata_then_dimensions(models_dir, tmp_path):
     small = tmp_path / "small.png"
     Image.new("RGB", (448, 576)).save(small)
     assert refine_compat.kind_for_image({}, str(small)) == "sd15"
+
+
+def test_krea2_is_inventoried_but_never_a_refine_candidate(models_dir):
+    """Until diffusers ships a Krea 2 img2img pipeline, krea2 images have no
+    refine options and krea2 models refine nothing."""
+    d = models_dir / "krea2-turbo"
+    d.mkdir()
+    (d / "model_index.json").write_text(json.dumps({"_class_name": "Krea2Pipeline"}))
+    _ckpt(models_dir, "a_xl.safetensors", gb=6.0)
+
+    table = refine_compat.load_table()
+    assert table["models"]["local:krea2-turbo"]["kind"] == "krea2"
+    # krea2 source -> nothing
+    assert refine_compat.candidates("local:krea2-turbo", "krea2") == []
+    assert refine_compat.candidates(None, "krea2") == []
+    # sdxl source -> krea2 never appears
+    ids = [c["model_id"] for c in refine_compat.candidates("local:a_xl", "sdxl")]
+    assert "local:krea2-turbo" not in ids

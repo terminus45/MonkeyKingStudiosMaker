@@ -73,7 +73,24 @@ def _hash_in_background(path: str, size: int, mtime: int) -> None:
 
 
 def identity(path: str) -> Optional[dict]:
-    """Cheap identity now; exact identity once the background hash lands."""
+    """Cheap identity now; exact identity once the background hash lands.
+
+    Folder models (diffusers-format directories) get an aggregate identity —
+    total component size + newest mtime, no sha256 (hashing ~36 GB of shards
+    has no payoff; a swapped folder model changes size/mtime anyway).
+    """
+    if os.path.isdir(path):
+        total, newest = 0, 0
+        for root, _dirs, files in os.walk(path):
+            for f in files:
+                try:
+                    st = os.stat(os.path.join(root, f))
+                    total += st.st_size
+                    newest = max(newest, int(st.st_mtime))
+                except OSError:
+                    pass
+        return {"name": os.path.basename(path), "size": total,
+                "mtime": newest, "sha256": None}
     try:
         st = os.stat(path)
     except OSError:

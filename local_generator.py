@@ -116,7 +116,8 @@ def _model_settings(model_id: str) -> dict:
     except ValueError:
         return settings
 
-    stem = os.path.basename(path)[:-len(".safetensors")]
+    base = os.path.basename(path)
+    stem = base[:-len(".safetensors")] if base.endswith(".safetensors") else base
     if any(h in stem.lower() for h in _TURBO_HINTS):
         settings.update({"steps": 8, "guidance": 2.0})
 
@@ -237,6 +238,33 @@ def _checkpoints() -> list[tuple[str, str, int]]:
     return out
 
 
+def _folder_models() -> list[tuple[str, str, str]]:
+    """(id, dirname, kind) for diffusers-format folder models.
+
+    A folder model is a subdirectory of LOCAL_MODELS_DIR containing a
+    model_index.json whose `_class_name` we recognise. The directory name
+    becomes the opaque id — the API never sees a path (D3 holds). Unknown
+    architectures are skipped entirely: offering a model we cannot load just
+    moves the failure into a generation the user is waiting on.
+    """
+    out = []
+    if not os.path.isdir(LOCAL_MODELS_DIR):
+        return out
+    for name in sorted(os.listdir(LOCAL_MODELS_DIR)):
+        d = os.path.join(LOCAL_MODELS_DIR, name)
+        mi = os.path.join(d, "model_index.json")
+        if not os.path.isfile(mi):
+            continue
+        try:
+            import json
+            cls = (json.load(open(mi, encoding="utf-8")) or {}).get("_class_name", "")
+        except Exception:
+            continue
+        if "krea2" in str(cls).lower():
+            out.append((f"local:{name}", name, "krea2"))
+    return out
+
+
 def discover_models() -> list[dict]:
     """The local half of the model allow-list.
 
@@ -252,8 +280,10 @@ def discover_models() -> list[dict]:
         return []
 
     models = []
-    for model_id, filename, size in _checkpoints():
-        kind = "sdxl" if size >= _SDXL_MIN_BYTES else "sd15"
+    entries = [(mid, fn, "sdxl" if size >= _SDXL_MIN_BYTES else "sd15")
+               for mid, fn, size in _checkpoints()]
+    entries += _folder_models()
+    for model_id, filename, kind in entries:
         ms = _model_settings(model_id)
 
         # A sidecar can pre-declare a model cache-unsafe (e.g. a checkpoint
@@ -285,6 +315,9 @@ def _resolve(model_id: str) -> tuple[str, str]:
         if candidate == model_id:
             kind = "sdxl" if size >= _SDXL_MIN_BYTES else "sd15"
             return os.path.join(LOCAL_MODELS_DIR, filename), kind
+    for candidate, dirname, kind in _folder_models():
+        if candidate == model_id:
+            return os.path.join(LOCAL_MODELS_DIR, dirname), kind
     raise ValueError(f"Unknown local model: {model_id!r}")
 
 
@@ -392,6 +425,23 @@ def _load(model_id: str):
             import gc
             gc.collect()
 
+        if kind == "krea2":
+            # Diffusers-format folder model (DiT). bf16, not fp16 — that is
+            # what the checkpoint ships and what MPS runs stably. Model CPU
+            # offload bounds peak MPS allocation: on unified memory it does
+            # not reduce total RAM, but staged residency keeps the 26 GB
+            # transformer from having to coexist with the 9 GB text encoder
+            # at allocation time. K4 of the plan measures alternatives.
+            from diffusers import DiffusionPipeline
+            pipe = DiffusionPipeline.from_pretrained(path, torch_dtype=torch.bfloat16)
+            try:
+                pipe.enable_model_cpu_offload(device=_device())
+            except Exception:
+                pipe = pipe.to(_device())
+            pipe.set_progress_bar_config(disable=True)
+            _pipe, _pipe_model_id = pipe, model_id
+            return _pipe
+
         cls = StableDiffusionXLPipeline if kind == "sdxl" else StableDiffusionPipeline
         pipe = cls.from_single_file(path, torch_dtype=torch.float16, use_safetensors=True)
         pipe = pipe.to(_device())
@@ -450,7 +500,7 @@ def _dimensions(kind: str, aspect_ratio: Optional[str], width: int, height: int)
     the native pixel budget, which is well below what the model was trained on
     and looks like it. Matching area gives 384×640 instead.
     """
-    base = 1024 if kind == "sdxl" else 512
+    base = 1024 if kind in ("sdxl", "krea2") else 512
     target_area = base * base
 
     ratio = 1.0
@@ -535,11 +585,15 @@ def generate(
     def _attempt() -> tuple[Image.Image, dict]:
         torch = _torch()
         pipe = _load(model_id)
-        _apply_sampler(pipe, sampler)
         path, kind = _resolve(model_id)
+        if kind != "krea2":
+            # The SAMPLERS table is SD-specific; a DiT ships its own
+            # flow-matching scheduler and swapping it in would break sampling.
+            _apply_sampler(pipe, sampler)
         w, h = _dimensions(kind, aspect_ratio, width, height)
 
-        hires = _hires_target(w, h, hires_scale)
+        # Hires fix is an SD 1.5 cure; a DiT renders native >= 1024.
+        hires = None if kind == "krea2" else _hires_target(w, h, hires_scale)
         # img2img runs int(steps * strength) actual steps, so the progress
         # total has to account for the strength, not the requested count.
         hires_steps = int(steps * denoise) if hires else 0
@@ -670,6 +724,12 @@ def refine(
     through SD 1.5 at full size would be slow and off-native for no benefit.
     """
     import random as _random
+
+    _, _kind_chk = _resolve(model_id)
+    if _kind_chk == "krea2":
+        raise ValueError(
+            "Refinement is not available for Krea 2 yet — diffusers has no "
+            "Krea 2 img2img pipeline. Refine with an SD/SDXL model instead.")
 
     strength = min(0.9, max(0.1, float(strength)))
     # Per-model settings apply here too — refining through a turbo model at 35
