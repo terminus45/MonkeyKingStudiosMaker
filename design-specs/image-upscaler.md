@@ -137,9 +137,20 @@ goes into the result's meta — debuggability beats magic.
   meta/lineage, server-side gallery save.
 - **U3 — CG UI**: the button row with computed output sizes and suggested
   factor, job persistence/resume, 8×/40 MP confirmation, gating states.
-- **U4 (optional, later)**: Upscale action on Gallery cards (same job API —
-  the Gallery page doesn't poll, which the server-side save already covers);
-  batch-upscale a book's pages before PDF export.
+- **U4 — Gallery 2× *(built 2026-09-01)***: one **🔎 2×** button per Images
+  card — deliberately a single factor: every result is itself a gallery
+  image with lineage, so "go larger" is pressing 2× on the result again.
+  Repeated 2× also re-runs the recipe-driven model choice each step, and
+  the 80 MP ceiling still applies (checked client-side from the loaded
+  pixels, enforced server-side). The button polls only as a
+  refresh-when-done nicety — the worker's server-side gallery save means
+  leaving mid-job still lands the result as a new card. Hidden entirely
+  when `/upscale/status` says the engine isn't available.
+- **U5 (optional, later)**: batch-upscale a book's pages before PDF export
+  — the piece that turns SD 1.5's 512-class pages into ~300 dpi print
+  output. Factor chosen by the same print-target rule; upscaled files sit
+  alongside the originals with the book pointing at them; job stage line
+  reports `upscaling (i/N)`.
 
 ## Risks, named
 

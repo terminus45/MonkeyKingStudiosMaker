@@ -570,8 +570,15 @@ def _run_upscale_job(job_id: str, path: str, src_filename: str, factor: int) -> 
         image_backends.save_image(image, filename, meta=meta)
         # Worker-side gallery save: an upscale outliving its page must not be
         # orphaned. The page's own save merges via the filename upsert.
-        _gallery_save_record(
-            filename, source_meta.get("prompt_final") or "", f"upscale-{factor}x")
+        # Prompt: the source's recipe, else its gallery record — an upscale of
+        # an upscale has no prompt_final of its own, but the chain's root does,
+        # and a card labeled "—" is unfindable.
+        prompt = source_meta.get("prompt_final")
+        if not prompt:
+            rec = next((r for r in _manifest_read(_IMAGES_MANIFEST)
+                        if r.get("filename") == src_filename), None)
+            prompt = (rec or {}).get("prompt") or ""
+        _gallery_save_record(filename, prompt, f"upscale-{factor}x")
         _image_job_update(job_id, {
             "stage": "done", "progress": 100,
             "filename": filename, "seed": None,
