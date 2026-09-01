@@ -257,3 +257,16 @@ noted follow-up. The in-process K2/diffusers path stays dormant behind its
 **Plan consequence:** L3's Realism Engine pairing has its hook — the official
 template's `LoraLoaderModelOnly` node (strength 0.8) slots between UNETLoader
 and KSampler. L1/L2 (sidecar `loras` key, SDXL proof) proceed as designed.
+
+### Idle unload — 2026-09-01
+
+A resident Krea 2 is 24.4 GB the rest of the machine feels (upscales and SD
+renders measurably crawl beside it). `comfy_generator` now runs an idle
+watchdog: every generation marks activity, and after `COMFY_IDLE_UNLOAD_S`
+(default 3600 s; 0 disables) with no generation through this backend it
+POSTs Comfy's `/free {"unload_models": true}`. Conservative by design — a
+non-empty Comfy queue (a GUI render counts) defers the unload; an
+unreachable Comfy counts as freed; the freed flag prevents repeat POSTs.
+Only `unload_models` is sent, so Comfy's execution cache survives and an
+identical re-prompt still returns in seconds; the next *new* prompt pays
+the normal ~2 min reload. The idle clock runs from render end.

@@ -111,6 +111,66 @@ def test_unreachable_comfy_never_breaks_the_registry(monkeypatch):
     assert any(m["backend"] == "gemini" for m in models)
 
 
+# ── idle unload ─────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def idle_state():
+    saved = dict(cg._idle)
+    yield cg._idle
+    cg._idle.update(saved)
+
+
+def _stub_free(monkeypatch, queue=None):
+    calls = []
+    q = queue if queue is not None else {"queue_running": [], "queue_pending": []}
+
+    def fake_get(url, timeout=5.0):
+        if url.endswith("/system_stats"):
+            return {"system": {}}
+        if url.endswith("/queue"):
+            return q
+        return []
+
+    monkeypatch.setattr(cg, "_get", fake_get)
+    monkeypatch.setattr(cg, "_post", lambda url, payload, timeout=30.0:
+                        calls.append((url, payload)) or {})
+    return calls
+
+
+def test_not_freed_before_deadline(monkeypatch, idle_state):
+    calls = _stub_free(monkeypatch)
+    cg._idle.update(last_used=1000.0, freed=False)
+    assert cg._maybe_free(now=1000.0 + cg.IDLE_UNLOAD_S - 1) is False
+    assert calls == []
+
+
+def test_freed_after_deadline_once(monkeypatch, idle_state):
+    calls = _stub_free(monkeypatch)
+    cg._idle.update(last_used=1000.0, freed=False)
+    assert cg._maybe_free(now=1000.0 + cg.IDLE_UNLOAD_S + 1) is True
+    assert calls == [(f"{cg.base_url()}/free", {"unload_models": True})]
+    # Already freed — a later tick must not spam Comfy again.
+    assert cg._maybe_free(now=1000.0 + cg.IDLE_UNLOAD_S + 999) is False
+    assert len(calls) == 1
+
+
+def test_busy_queue_defers_unload(monkeypatch, idle_state):
+    calls = _stub_free(monkeypatch,
+                       queue={"queue_running": [["x"]], "queue_pending": []})
+    cg._idle.update(last_used=1000.0, freed=False)
+    assert cg._maybe_free(now=1000.0 + cg.IDLE_UNLOAD_S + 1) is False
+    assert calls == []
+    assert cg._idle["freed"] is False        # still due — retried next tick
+
+
+def test_unreachable_comfy_counts_as_freed(monkeypatch, idle_state):
+    monkeypatch.setattr(cg, "_get", lambda *a, **k:
+                        (_ for _ in ()).throw(OSError("down")))
+    cg._idle.update(last_used=1000.0, freed=False)
+    assert cg._maybe_free(now=1000.0 + cg.IDLE_UNLOAD_S + 1) is False
+    assert cg._idle["freed"] is True
+
+
 def test_dispatcher_routes_and_finalizes(monkeypatch):
     _stub_api(monkeypatch)
     from PIL import Image as PILImage

@@ -16,6 +16,7 @@ The node graph mirrors ComfyUI's official Krea-2 Turbo template
 """
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -59,6 +60,69 @@ _KREA2_DEFAULTS = {"steps": 8, "guidance": 1.0}
 # ~44–134 s/step (slowing as memory pressure builds) — a cold render is
 # ~18 minutes. 900 s timed out a job Comfy went on to finish.
 GENERATION_TIMEOUT_S = int(os.getenv("COMFY_TIMEOUT_S", "2400"))
+
+# Idle unload: a resident Krea 2 is 24.4 GB the rest of the machine feels
+# (local SD renders and upscales measurably crawl beside it). After this
+# long with no generation through this backend, ask Comfy to unload its
+# models (POST /free {"unload_models": true}) — the next prompt reloads
+# them, at the usual ~2 min load cost. 0 disables the watchdog.
+IDLE_UNLOAD_S = int(os.getenv("COMFY_IDLE_UNLOAD_S", "3600"))
+_IDLE_TICK_S = 60.0
+_idle = {"last_used": 0.0, "freed": True, "thread": None}
+_idle_lock = threading.Lock()
+
+
+def _mark_used() -> None:
+    """Record backend activity and (once) start the idle watchdog."""
+    with _idle_lock:
+        _idle["last_used"] = time.time()
+        _idle["freed"] = False
+        if IDLE_UNLOAD_S > 0 and _idle["thread"] is None:
+            t = threading.Thread(target=_idle_watchdog, daemon=True,
+                                 name="comfy-idle-unload")
+            _idle["thread"] = t
+            t.start()
+
+
+def _idle_watchdog() -> None:
+    while True:
+        time.sleep(_IDLE_TICK_S)
+        try:
+            _maybe_free()
+        except Exception:
+            pass                     # never let the watchdog die
+
+
+def _maybe_free(now: Optional[float] = None) -> bool:
+    """Unload Comfy's models if this backend has been idle past the deadline.
+
+    Deliberately conservative: a non-empty Comfy queue (someone rendering in
+    the GUI counts) defers to the next tick, and Comfy being unreachable
+    counts as already freed. Only unload_models is sent — Comfy's execution
+    cache keys node outputs by graph, so an identical re-prompt still
+    returns in seconds even after its models were unloaded.
+    """
+    now = time.time() if now is None else now
+    with _idle_lock:
+        due = (not _idle["freed"]
+               and now - _idle["last_used"] >= IDLE_UNLOAD_S > 0)
+    if not due:
+        return False
+    url = base_url()
+    if url is None:
+        with _idle_lock:
+            _idle["freed"] = True    # Comfy is gone; nothing left to free
+        return False
+    try:
+        q = _get(f"{url}/queue", timeout=3)
+        if q.get("queue_running") or q.get("queue_pending"):
+            return False             # someone is mid-render — try next tick
+        _post(f"{url}/free", {"unload_models": True}, timeout=30)
+    except Exception:
+        return False                 # transient — try next tick
+    with _idle_lock:
+        _idle["freed"] = True
+    return True
 
 
 def _get(url: str, timeout: float = 5.0):
@@ -233,6 +297,7 @@ def generate(
     if on_step:
         on_step(0, 1)
 
+    _mark_used()          # arms the idle-unload watchdog; see _maybe_free
     r = _post(f"{url}/prompt",
               {"prompt": _build_graph(prompt, seed, steps, cfg, w, h, dit),
                "client_id": uuid.uuid4().hex})
@@ -271,4 +336,5 @@ def generate(
     image = Image.open(io.BytesIO(data)).convert("RGB")
     if on_step:
         on_step(1, 1)
+    _mark_used()          # idle clock runs from render END, not submit
     return image, meta
