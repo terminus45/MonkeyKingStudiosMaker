@@ -235,6 +235,20 @@
           </div>
           <p class="hint" id="cgRefineHint"></p>
         </div>
+
+        <!-- Upscale: Real-ESRGAN super-resolution over the displayed image.
+             Buttons are labeled with the concrete output size; the factor
+             nearest print quality is pre-highlighted. Hidden when the
+             engine isn't available (no local extras / no weights). -->
+        <div class="cg-refine-panel cg-upscale-panel hidden" id="cgUpscalePanel">
+          <span class="cg-refine-label">🔎 Upscale this image</span>
+          <div class="cg-refine-actions">
+            <button class="settings-btn" id="cgUpscale2" data-factor="2"></button>
+            <button class="settings-btn" id="cgUpscale4" data-factor="4"></button>
+            <button class="settings-btn" id="cgUpscale8" data-factor="8"></button>
+          </div>
+          <p class="hint" id="cgUpscaleHint"></p>
+        </div>
       </div>
 
     </section>

@@ -32,6 +32,7 @@ import book_pdf
 import comfy_generator
 import gemini_generator
 import image_backends
+import upscaler
 import meshy_generator
 import refine_compat
 import practice_sheet as practice_sheet_mod
@@ -521,6 +522,114 @@ def generate_job_status(job_id: str):
     if rec is None:
         raise HTTPException(status_code=404, detail="Unknown or expired job id.")
     return rec
+
+
+# ── Upscaling (design-specs/image-upscaler.md) ────────────────────────────────
+
+class UpscaleRequest(BaseModel):
+    filename: str
+    factor: int = 4
+
+
+@app.get("/upscale/status")
+def upscale_status():
+    """Engine readiness + models on disk — the CG upscale row's gating."""
+    ok, reason = upscaler.available()
+    return {
+        "available": ok, "reason": reason,
+        "models": [m["key"] for m in upscaler.discover_models()] if ok else [],
+        "factors": list(upscaler.FACTORS),
+        "max_output_pixels": upscaler.MAX_OUTPUT_PIXELS,
+    }
+
+
+def _run_upscale_job(job_id: str, path: str, src_filename: str, factor: int) -> None:
+    try:
+        _image_job_update(job_id, {"stage": "upscaling"})
+
+        def on_step(step: int, total: int) -> None:
+            _image_job_update(job_id, {
+                "step": step, "total": total,
+                "progress": int(step / max(total, 1) * 100),
+            })
+
+        source_meta = gemini_generator.read_image_metadata(path) or {}
+        key, why = upscaler.choose_model(source_meta)
+
+        from PIL import Image as PILImage
+        with PILImage.open(path) as im:
+            source = im.convert("RGB")
+        image, meta = upscaler.upscale(source, factor, key, on_step=on_step)
+
+        meta["parent_filename"] = src_filename
+        meta["upscaler_choice"] = {"model": key, "source": why}
+        meta["versions"] = image_backends._versions()
+        meta["created_at"] = datetime.now(timezone.utc).isoformat()
+
+        filename = f"{uuid.uuid4().hex}.png"
+        image_backends.save_image(image, filename, meta=meta)
+        # Worker-side gallery save: an upscale outliving its page must not be
+        # orphaned. The page's own save merges via the filename upsert.
+        _gallery_save_record(
+            filename, source_meta.get("prompt_final") or "", f"upscale-{factor}x")
+        _image_job_update(job_id, {
+            "stage": "done", "progress": 100,
+            "filename": filename, "seed": None,
+            "finished_at": time.time(),
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        _image_job_update(job_id, {
+            "stage": "error", "error": str(e), "finished_at": time.time(),
+        })
+
+
+@app.post("/upscale/job")
+def upscale_job(req: UpscaleRequest):
+    """Super-resolve a saved image by 2x/4x/8x, as a poll-able job.
+
+    The upscaler model is chosen server-side from the source's own embedded
+    recipe (sidecar declaration > checkpoint-name heuristic > backend
+    default) — the client picks a factor, never a model. Results are new
+    files with parent_filename lineage, like refine.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    if req.factor not in upscaler.FACTORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"factor must be one of {list(upscaler.FACTORS)}.")
+    ok, reason = upscaler.available()
+    if not ok:
+        raise HTTPException(status_code=503, detail=reason)
+    path = _resolve_image_path(req.filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    # Synchronous ceiling check — a doomed job should fail at submit.
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        w, h = im.size
+    if w * h * req.factor ** 2 > upscaler.MAX_OUTPUT_PIXELS:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{req.factor}x of {w}x{h} exceeds the "
+                    f"{upscaler.MAX_OUTPUT_PIXELS // 1_000_000} MP output limit."))
+
+    _image_jobs_prune()
+    job_id = uuid.uuid4().hex
+    with _image_jobs_lock:
+        _image_jobs[job_id] = {
+            "job_id": job_id, "stage": "queued", "progress": 0,
+            "step": 0, "total": 0, "filename": None, "error": None,
+            "model": f"upscale-{req.factor}x", "kind": "upscale",
+            "source": req.filename, "started_at": time.time(),
+        }
+    threading.Thread(
+        target=_run_upscale_job,
+        args=(job_id, path, req.filename, req.factor),
+        daemon=True).start()
+    return {"job_id": job_id}
 
 
 @app.post("/generate/stream")

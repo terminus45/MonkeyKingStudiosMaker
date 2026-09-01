@@ -107,6 +107,8 @@ _SIDECAR_KEYS = {
     # Prompt dialect the checkpoint expects — used by refine compatibility to
     # demote tag-trained models (Animagine) for natural-language sources.
     "prompt_style":  lambda v: v if v in ("natural", "tags") else None,
+    # Which upscaler suits this checkpoint's output (upscaler.choose_model).
+    "upscaler":      lambda v: v if v in ("anime", "general") else None,
 }
 
 
