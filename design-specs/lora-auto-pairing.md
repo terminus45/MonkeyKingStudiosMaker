@@ -92,6 +92,11 @@ what s/step, with which memory strategy. Record results here. If it thrashes
 unusably, the model stays discovered but the label says so, and the phase
 parks — selectable-but-honest beats hidden.
 
+> **PR boundary (2026-09-04):** everything above merged in PR #6 (Krea 2 via
+> ComfyUI + upscaler). The L-phases below are the scope of the follow-up PR
+> on `feature/lora-pairing`. L3's two gates are unchanged: a Civitai-login
+> download, and the explicit content decision recorded under L3.
+
 ### L1 — LoRA pairing core *(unchanged design, now after K-phases)*
 
 Sidecar `"loras": [{"file", "scale"}]`, basename-only against
