@@ -65,16 +65,34 @@ viewer models. Texture comes later if the MPS texture stage proves out.
   wall-clock, peak memory, and mesh quality/watertightness (does the STL
   slice in a slicer?). Also verify the license actually permits this use.
   Kill criterion: >10 min per mesh or non-printable geometry.
-- **M2 — Backend**: `local_figure_generator.py` + `requirements-3d.txt`;
-  pinned weight download; `available()`/discovery; mesh cleanup pass
-  (decimate to a sane face count, ensure manifold) via trimesh; GLB out.
-- **M3 — Pipeline wiring**: a `backend` choice on the figure endpoints
-  (default remains Meshy when its key exists). The local worker reuses
-  `_figure_jobs` with stages `preparing → meshing → cleanup → done`,
-  writes to `FIGURES_DIR`, gallery-saves worker-side (upsert precedent),
-  and renders untextured GLBs in the existing viewer (IBL lighting
-  already in place — gray PBR material reads fine). Claude print report
-  stays; Meshy-specific stages skip.
+- **M2 — Backend + selector (ends user-testable)**: everything a user
+  needs to build a local figure from the UI ships in this phase.
+  - `local_figure_generator.py` + `requirements-3d.txt`; pinned weight
+    download; `available()`/discovery; mesh cleanup pass (decimate to a
+    sane face count, ensure manifold) via trimesh; GLB out.
+  - **Figure engine selector in Settings**, mirroring the character-
+    generation model selector exactly: a `#settingsFigureEngine` select
+    on the Settings page, populated from a new `GET /figure/backends`
+    (Meshy listed when its key resolves, local when extras + weights are
+    ready), grouped **Cloud / On this Mac** with a status line beneath
+    explaining an absent group — same honest-discovery contract as the
+    image picker. Persisted client-side (`localStorage`, alongside the
+    CG draft) and sent with figure requests; the server validates the
+    requested backend against its own availability (ids-not-trust, as
+    with image models). Default stays Meshy whenever its key exists.
+  - The figure endpoints honor the choice; the local worker reuses
+    `_figure_jobs` with stages `preparing → meshing → cleanup → done`,
+    writes to `FIGURES_DIR`, gallery-saves worker-side (upsert
+    precedent), and renders untextured GLBs in the existing viewer (IBL
+    lighting already in place — gray PBR material reads fine).
+  - **Exit criterion**: a user can open Settings, pick "On this Mac"
+    for figures, and build a printable figure end-to-end — M2 closes
+    when that flow is ready for user testing, not before.
+- **M3 — Polish from user testing**: whatever M2's testing surfaces,
+  plus the known parity items — Claude print report on the local path
+  (Meshy-specific stages skip), picker copy with measured timings,
+  cleanup-pass tuning against real slicer results, error-path UX (weights
+  missing mid-job, memory pressure).
 
 ## Enhancements (after M3, in value order)
 
