@@ -32,6 +32,7 @@ import book_pdf
 import comfy_generator
 import gemini_generator
 import image_backends
+import local_figure_generator
 import upscaler
 import meshy_generator
 import refine_compat
@@ -1785,6 +1786,13 @@ class FigureGenerateRequest(BaseModel):
     story: Optional[str] = ""             # shared story prompt (context/pose)
     anthropic_key: Optional[str] = None
     meshy_key: Optional[str] = None
+    # Figure engine from Settings ("meshy" | "local-hunyuan3d"). None = meshy.
+    # Validated against server-side availability — a name, never a trust.
+    engine: Optional[str] = None
+    # Local text→figure chains through image generation first; this is the
+    # image model id for that step (the Settings image model). Allow-listed
+    # by image_backends like any other generation.
+    image_model: Optional[str] = None
 
 
 class FigureFromImageRequest(BaseModel):
@@ -1794,6 +1802,7 @@ class FigureFromImageRequest(BaseModel):
     story: Optional[str] = ""
     anthropic_key: Optional[str] = None
     meshy_key: Optional[str] = None
+    engine: Optional[str] = None           # see FigureGenerateRequest.engine
 
 
 # ── Image-to-3D figure worker ─────────────────────────────────────────────────
@@ -1890,13 +1899,129 @@ def _run_figure_image_job(job_id: str, filename: str, prompt: str,
         _job_update(job_id, {"stage": "error", "error": str(exc)})
 
 
+def _run_local_figure_job(job_id: str, filename: Optional[str], prompt: str,
+                          style: str, image_model: Optional[str],
+                          anthropic_key: Optional[str],
+                          gemini_key: Optional[str]) -> None:
+    """Background worker: on-device figure via Hunyuan3D-2.1 shape stage.
+
+    With `filename`, meshes an existing portrait. Without one (text mode),
+    it first generates the portrait through image_backends with
+    `image_model` — the local text→figure chain. Output is an untextured,
+    print-ready GLB; the viewer's IBL lighting renders it as clean gray.
+    """
+    from PIL import Image as PilImage
+    try:
+        if filename is None:
+            # Text mode: make the portrait first, with the user's image model.
+            _job_update(job_id, {"stage": "illustrating", "progress": 3})
+            result = image_backends.generate(
+                content_prompt=prompt, style_prompt=style or "",
+                model_id=image_model, aspect_ratio="1:1",
+                api_key=gemini_key)
+            filename = f"{uuid.uuid4().hex}.png"
+            image_backends.save_result(result, filename)
+            _gallery_save_record(filename, prompt, image_model)
+            _job_update(job_id, {"portrait_filename": filename})
+
+        img_path = _resolve_image_path(filename)
+        if img_path is None:
+            raise RuntimeError("Portrait image file not found.")
+        with PilImage.open(img_path) as img:
+            portrait = img.convert("RGB")
+
+        def on_progress(stage: str, pct: int) -> None:
+            # Map the module's 5..90 onto 10..88 so 'analyzing' has room.
+            _job_update(job_id, {"stage": stage,
+                                 "progress": 10 + int(pct * 0.85)})
+
+        glb_filename = f"{job_id}.glb"
+        os.makedirs(FIGURES_DIR, exist_ok=True)
+        stats = local_figure_generator.generate_figure(
+            portrait, os.path.join(FIGURES_DIR, glb_filename),
+            on_progress=on_progress)
+        _job_update(job_id, {"glb_filename": glb_filename, "progress": 94})
+
+        _job_update(job_id, {"stage": "analyzing", "progress": 96})
+        report_data = _make_print_report(prompt or "a 3D character figure",
+                                         anthropic_key)
+        _job_update(job_id, {"report": report_data["report"],
+                             "filament": report_data["filament"],
+                             "progress": 99})
+
+        try:
+            _manifest_append(_MODELS_MANIFEST, {
+                "id": uuid.uuid4().hex[:8],
+                "glb_filename": glb_filename,
+                "prompt": prompt or "(from image)",
+                "enhanced_prompt": None,
+                "source": "local-hunyuan3d",
+                "report": report_data["report"],
+                "filament": report_data["filament"],
+                # The portrait doubles as the thumbnail — same IMAGES_DIR
+                # serving path as Meshy thumbnails.
+                "thumbnail_filename": filename,
+                "mesh_stats": stats,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass  # manifest failure is non-fatal
+
+        _job_update(job_id, {"stage": "done", "progress": 100})
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        _job_update(job_id, {"stage": "error", "error": str(exc)})
+
+
 # ── Figure routes ─────────────────────────────────────────────────────────────
+
+@app.get("/figure/backends")
+def figure_backends():
+    """Selectable figure engines — the Settings picker's source of truth.
+
+    Mirrors the image-model contract: an engine appears only when it can
+    actually run (honest discovery), and requests naming an absent engine
+    are 400s at submit.
+    """
+    engines = []
+    if settings_store.get_key("MESHY_API_KEY"):
+        engines.append({"id": "meshy",
+                        "name": "Meshy.AI — cloud, textured",
+                        "backend": "cloud"})
+    ok, reason = local_figure_generator.available()
+    if ok:
+        engines.append({"id": "local-hunyuan3d",
+                        "name": "Hunyuan3D on this Mac — $0.00, print-ready, very slow (~10–20 min)",
+                        "backend": "local"})
+    return {"engines": engines,
+            "local": {"available": ok, "reason": reason}}
 
 @app.post("/figure/generate")
 def figure_generate(req: FigureGenerateRequest):
     """Start a figure generation job. Returns {job_id}."""
     if not req.prompt or not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt must not be empty.")
+
+    if req.engine == "local-hunyuan3d":
+        ok, reason = local_figure_generator.available()
+        if not ok:
+            raise HTTPException(status_code=503, detail=reason)
+        # Text mode chains through image generation — the image model must
+        # be in the allow-list like any other generation.
+        if not req.image_model or image_backends.backend_for(req.image_model) is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Local figures need a valid image model (pick one in Settings).")
+        job_id = uuid.uuid4().hex
+        _job_create(job_id)
+        threading.Thread(
+            target=_run_local_figure_job,
+            args=(job_id, None, req.prompt.strip(), _safe_style(req.style),
+                  req.image_model,
+                  req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY"),
+                  settings_store.get_key("GEMINI_API_KEY")),
+            daemon=True).start()
+        return {"job_id": job_id}
 
     resolved_meshy_key = req.meshy_key or settings_store.get_key("MESHY_API_KEY")
     if not resolved_meshy_key:
@@ -1935,6 +2060,20 @@ def figure_generate_from_image(req: FigureFromImageRequest):
 
     if _resolve_image_path(req.filename) is None:
         raise HTTPException(status_code=404, detail="Couldn't find that portrait.")
+
+    if req.engine == "local-hunyuan3d":
+        ok, reason = local_figure_generator.available()
+        if not ok:
+            raise HTTPException(status_code=503, detail=reason)
+        job_id = uuid.uuid4().hex
+        _job_create(job_id)
+        threading.Thread(
+            target=_run_local_figure_job,
+            args=(job_id, req.filename, (req.prompt or "").strip(), "", None,
+                  req.anthropic_key or settings_store.get_key("ANTHROPIC_API_KEY"),
+                  None),
+            daemon=True).start()
+        return {"job_id": job_id}
 
     resolved_meshy_key = req.meshy_key or settings_store.get_key("MESHY_API_KEY")
     if not resolved_meshy_key:
