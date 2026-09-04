@@ -43,6 +43,19 @@ def table_path() -> str:
 def _inputs_checksum() -> str:
     """Fingerprint of the checkpoint set + sidecar contents."""
     h = hashlib.sha256()
+    for model_id, dirname, _kind in local_generator._folder_models():
+        mi = os.path.join(_dir(), dirname, "model_index.json")
+        try:
+            st = os.stat(mi)
+            h.update(f"{dirname}|{st.st_size}|{int(st.st_mtime)}".encode())
+        except OSError:
+            h.update(dirname.encode())
+        sc = os.path.join(_dir(), dirname + ".json")
+        try:
+            with open(sc, "rb") as f:
+                h.update(f.read())
+        except OSError:
+            h.update(b"-")
     for model_id, filename, size in local_generator._checkpoints():
         try:
             mtime = int(os.stat(os.path.join(_dir(), filename)).st_mtime)
@@ -61,8 +74,10 @@ def _inputs_checksum() -> str:
 def _model_infos() -> dict:
     """{model_id: {kind, prompt_style, cache_unsafe}} for every local model."""
     infos = {}
-    for model_id, filename, size in local_generator._checkpoints():
-        kind = "sdxl" if size >= local_generator._SDXL_MIN_BYTES else "sd15"
+    entries = [(mid, "sdxl" if size >= local_generator._SDXL_MIN_BYTES else "sd15")
+               for mid, _fn, size in local_generator._checkpoints()]
+    entries += [(mid, kind) for mid, _dn, kind in local_generator._folder_models()]
+    for model_id, kind in entries:
         ms = local_generator._model_settings(model_id)
         infos[model_id] = {
             "kind": kind,
@@ -148,6 +163,14 @@ def candidates(source_model_id: Optional[str], source_kind: Optional[str]) -> li
     """
     table = load_table()
     infos = table["models"]
+
+    # krea2 refines with nothing (upstream has no Krea 2 img2img pipeline)
+    # and nothing refines krea2 output except krea2 — so both directions are
+    # empty until diffusers ships the pipeline. The panel's empty state
+    # explains this to the user.
+    if source_kind == "krea2" or (
+            source_model_id and infos.get(source_model_id, {}).get("kind") == "krea2"):
+        return []
 
     if source_model_id and source_model_id in table["pairs"]:
         row = list(table["pairs"][source_model_id])

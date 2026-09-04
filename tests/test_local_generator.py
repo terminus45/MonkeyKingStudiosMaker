@@ -542,3 +542,71 @@ def test_generation_meta_records_kind(models_dir, monkeypatch):
     _fake_checkpoint(models_dir, "small.safetensors", gb=2.0)
     _, meta = local_generator.generate(content_prompt="x", model_id="local:small", seed=1)
     assert meta["kind"] == "sd15"
+
+
+# ── folder models (krea2) ───────────────────────────────────────────────────
+
+def _folder_model(models_dir, name, cls="Krea2Pipeline"):
+    d = models_dir / name
+    d.mkdir()
+    (d / "model_index.json").write_text(_json.dumps({"_class_name": cls}))
+    return d
+
+
+def test_folder_model_discovered_with_kind_krea2(models_dir):
+    _folder_model(models_dir, "krea2-turbo")
+    ids = {m["id"] for m in local_generator.discover_models()}
+    assert "local:krea2-turbo" in ids
+    path, kind = local_generator._resolve("local:krea2-turbo")
+    assert kind == "krea2" and path.endswith("krea2-turbo")
+
+
+def test_unknown_folder_architectures_are_not_offered(models_dir):
+    """A folder we can't load must not reach the picker."""
+    _folder_model(models_dir, "some-flux-model", cls="FluxPipeline")
+    (models_dir / "LORAs").mkdir()          # plain dirs ignored too
+    assert local_generator.discover_models() == []
+
+
+def test_malformed_model_index_is_skipped(models_dir):
+    d = models_dir / "broken-model"
+    d.mkdir()
+    (d / "model_index.json").write_text("{not json")
+    assert local_generator.discover_models() == []
+
+
+def test_folder_model_settings_use_the_dirname_stem(models_dir):
+    _folder_model(models_dir, "krea2-turbo")
+    # name heuristic: 'turbo' in the dirname
+    ms = local_generator._model_settings("local:krea2-turbo")
+    assert ms.get("steps") == 8
+    # sidecar named after the directory overrides
+    _sidecar(models_dir, "krea2-turbo", {"guidance": 1.0, "label": "Krea 2 Turbo"})
+    ms = local_generator._model_settings("local:krea2-turbo")
+    assert ms["guidance"] == 1.0 and ms["label"] == "Krea 2 Turbo"
+
+
+def test_krea2_dimensions_native_1024():
+    w, h = local_generator._dimensions("krea2", "1:1", 0, 0)
+    assert (w, h) == (1024, 1024)
+    w, h = local_generator._dimensions("krea2", "3:4", 0, 0)
+    assert 0.9 <= (w * h) / (1024 * 1024) <= 1.1 and h > w
+
+
+def test_refine_rejects_krea2_models(models_dir):
+    _folder_model(models_dir, "krea2-turbo")
+    from PIL import Image as PILImage
+    with pytest.raises(ValueError, match="not available for Krea 2"):
+        local_generator.refine(source=PILImage.new("RGB", (64, 64)),
+                               prompt="p", model_id="local:krea2-turbo")
+
+
+def test_disabled_sidecar_removes_model_from_discovery(models_dir):
+    """A model the hardware can't run stays on disk but is never offered —
+    offering it would wedge the server in uninterruptible page-in (K4)."""
+    _folder_model(models_dir, "krea2-turbo")
+    _sidecar(models_dir, "krea2-turbo", {"disabled": True})
+    assert local_generator.discover_models() == []
+    # still resolvable internally (regenerate of old images, future re-enable)
+    path, kind = local_generator._resolve("local:krea2-turbo")
+    assert kind == "krea2"

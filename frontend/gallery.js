@@ -151,6 +151,61 @@ async function loadPanel(tab) {
 }
 
 // ── Images panel ─────────────────────────────────────────────────────────────
+
+// Upscale gating — fetched once at init; when the engine isn't available
+// (no local extras / no weights) the cards simply don't grow the button.
+let _upscaleStatus = null;
+
+async function loadUpscaleStatus() {
+  try {
+    const res = await fetch(`${API}/upscale/status`);
+    if (res.ok) _upscaleStatus = await res.json();
+  } catch { /* server unreachable — no button */ }
+}
+
+/**
+ * 2x a saved image. One factor only: each result is itself a gallery image
+ * with lineage, so "go larger" is just pressing 2x again on the result.
+ * The worker gallery-saves server-side, so the finished image lands as a
+ * new card even if the user leaves mid-job; this poll is only for the
+ * refresh-when-done nicety.
+ */
+async function upscaleImage(e, img, card) {
+  const btn = e.currentTarget;
+  const thumb = card.querySelector('.image-card-thumb img');
+  const w = thumb ? thumb.naturalWidth : 0, h = thumb ? thumb.naturalHeight : 0;
+  if (_upscaleStatus && w && h && w * h * 4 > _upscaleStatus.max_output_pixels) {
+    alert(`This image is already ${w}×${h} — 2× would exceed the ` +
+          `${Math.round(_upscaleStatus.max_output_pixels / 1e6)} MP limit.`);
+    return;
+  }
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 0%';
+  try {
+    const res = await fetch(`${API}/upscale/job`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ filename: img.filename, factor: 2 }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || `Error ${res.status}`);
+    const { job_id } = await res.json();
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1500));
+      const s = await fetch(`${API}/generate/status/${job_id}`);
+      if (!s.ok) throw new Error('The job was lost (did the server restart?). Check back shortly — finished upscales still appear here.');
+      const rec = await s.json();
+      if (rec.stage === 'done') break;
+      if (rec.stage === 'error') throw new Error(rec.error || 'Upscale failed.');
+      btn.textContent = `⏳ ${rec.progress || 0}%`;
+    }
+    await loadImages();          // the new card appears at the top
+  } catch (err) {
+    alert(`Upscale failed: ${err.message}`);
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
 async function loadImages() {
   panelLoaded.images = true;
   imagesEmpty.textContent = 'Loading…';
@@ -208,6 +263,13 @@ function buildImageCard(img) {
         data-action="reuse-image"
         aria-label="Reuse this prompt in the Character Generator"
       >↺ Reuse</button>
+      ${_upscaleStatus && _upscaleStatus.available ? `
+      <button
+        class="book-action-btn"
+        data-action="upscale-image"
+        aria-label="Double this image's resolution"
+        title="Double the resolution — press again on the result to go larger"
+      >🔎 2×</button>` : ''}
       <button
         class="book-action-btn"
         data-action="image-info"
@@ -231,6 +293,8 @@ function buildImageCard(img) {
   card.querySelector('[data-action="view-image"]').addEventListener('click', () => openImageViewer(img));
   card.querySelector('[data-action="make-figure"]').addEventListener('click', e => makeFigureFromImage(e, img));
   card.querySelector('[data-action="reuse-image"]').addEventListener('click', () => reuseImagePrompt(img));
+  const upBtn = card.querySelector('[data-action="upscale-image"]');
+  if (upBtn) upBtn.addEventListener('click', e => upscaleImage(e, img, card));
   card.querySelector('[data-action="image-info"]').addEventListener('click', () => openImageViewer(img, { withMeta: true }));
   card.querySelector('[data-action="delete-image"]').addEventListener('click', e => deleteImage(e, img.id, card));
   return card;
@@ -987,6 +1051,9 @@ refreshBtn.addEventListener('click', () => {
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   await checkHealth();
+
+  // Before the first card renders — buildImageCard reads the flag.
+  await loadUpscaleStatus();
 
   // Determine starting tab from URL param or localStorage
   const urlTab   = new URLSearchParams(window.location.search).get('tab');

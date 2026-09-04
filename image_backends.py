@@ -18,6 +18,7 @@ from typing import Callable, Optional
 
 from PIL import Image
 
+import comfy_generator
 import gemini_generator
 from config import SAFETY_STYLE_SUFFIX
 
@@ -92,6 +93,11 @@ def list_models() -> list[dict]:
             # A broken or half-installed local backend must never take the
             # cloud path down with it — the app's paid, working path wins.
             pass
+
+    try:
+        models += [dict(m, backend="comfy") for m in comfy_generator.discover_models()]
+    except Exception:
+        pass          # an unreachable ComfyUI must never break the registry
 
     return models
 
@@ -190,6 +196,21 @@ def generate(
             "versions": {"meta_version": META_VERSION},
             "created_at": created_at,
         })
+
+    if backend == "comfy":
+        image, meta = comfy_generator.generate(
+            content_prompt=content_prompt,
+            style_prompt=style_prompt,
+            negative_prompt=negative_prompt,
+            model_id=model_id,
+            aspect_ratio=aspect_ratio,
+            width=width,
+            height=height,
+            seed=seed,
+            on_step=on_step,
+            **(local_overrides or {}),
+        )
+        return _finalize_local(image, meta, created_at)
 
     local = _local_module()
     if local is None:                        # pragma: no cover — Phase 2

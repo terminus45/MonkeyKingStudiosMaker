@@ -100,9 +100,10 @@ function readJob() {
 function setLoadingProgress(rec) {
   if (!cgLoadingLabel) return;
   const pct = rec && typeof rec.progress === 'number' ? rec.progress : null;
+  const verb = rec && rec.stage === 'upscaling'
+    ? 'Upscaling your image…' : 'Generating your character…';
   cgLoadingLabel.textContent =
-    pct === null || pct === 0 ? 'Generating your character…'
-                              : `Generating your character… ${pct}%`;
+    pct === null || pct === 0 ? verb : `${verb} ${pct}%`;
 }
 
 /**
@@ -286,6 +287,79 @@ async function startRefine(strength) {
 
 cgRefineButtons.forEach(btn =>
   btn.addEventListener('click', () => startRefine(parseFloat(btn.dataset.strength))));
+
+// ── Upscale panel ────────────────────────────────────────────────────────────
+// Real-ESRGAN super-resolution over the displayed image. The server picks
+// the upscaler model from the image's own recipe; the client picks only a
+// factor. Buttons carry the concrete output size for THIS image, and the
+// factor nearest print quality (~3300 px long edge) is pre-highlighted.
+const cgUpscalePanel = document.getElementById('cgUpscalePanel');
+const cgUpscaleHint  = document.getElementById('cgUpscaleHint');
+const cgUpscaleBtns  = [2, 4, 8].map(f => document.getElementById(`cgUpscale${f}`));
+
+let _upscaleStatus = null;   // GET /upscale/status, fetched once at load
+
+async function loadUpscaleStatus() {
+  try {
+    const res = await fetch(`${API}/upscale/status`);
+    if (res.ok) _upscaleStatus = await res.json();
+  } catch { /* server unreachable — the panel just stays hidden */ }
+}
+
+function suggestedFactor(w, h) {
+  const long = Math.max(w, h);
+  for (const f of [2, 4, 8]) if (long * f >= 3300) return f;
+  return 8;
+}
+
+/** Label/enable the buttons for the displayed image's real dimensions. */
+function updateUpscalePanel() {
+  if (!_upscaleStatus || !_upscaleStatus.available || !currentFilename) {
+    cgUpscalePanel.classList.add('hidden');
+    return;
+  }
+  const w = cgPortraitImg.naturalWidth, h = cgPortraitImg.naturalHeight;
+  if (!w || !h) { cgUpscalePanel.classList.add('hidden'); return; }
+  const suggest = suggestedFactor(w, h);
+  cgUpscaleBtns.forEach(btn => {
+    const f = parseInt(btn.dataset.factor, 10);
+    btn.textContent = `${f}× → ${w * f}×${h * f}`;
+    btn.disabled = w * h * f * f > _upscaleStatus.max_output_pixels;
+    btn.classList.toggle('suggested', f === suggest && !btn.disabled);
+  });
+  cgUpscaleHint.textContent = '';
+  cgUpscalePanel.classList.remove('hidden');
+}
+
+async function startUpscale(factor) {
+  if (!currentFilename) return;
+  const w = cgPortraitImg.naturalWidth, h = cgPortraitImg.naturalHeight;
+  const mp = (w * h * factor * factor) / 1e6;
+  if (mp > 40 && !confirm(
+      `${factor}× makes a ${w * factor}×${h * factor} image (~${Math.round(mp)} MP) — ` +
+      `a very large file some browsers struggle to display. Continue?`)) return;
+  const desc = cgUseAsCoverBtn.dataset.description || '';
+  try {
+    const res = await fetch(`${API}/upscale/job`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ filename: currentFilename, factor }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || `Server error ${res.status}`);
+    const { job_id } = await res.json();
+    // Same job store and poll loop as generation — survives navigation.
+    saveJob(job_id, desc);
+    pollJob(job_id, desc);
+  } catch (err) {
+    showError(err.message || 'Upscale failed. Please try again.');
+  }
+}
+
+cgUpscaleBtns.forEach(btn =>
+  btn.addEventListener('click', () => startUpscale(parseInt(btn.dataset.factor, 10))));
+
+// Output sizes come from the loaded pixels, so refresh whenever they change.
+cgPortraitImg.addEventListener('load', updateUpscalePanel);
 
 /** Shared completion path for both a fresh generation and a resumed one. */
 function onGenerated(filename, description, model, seed) {
@@ -694,6 +768,11 @@ function restoreSession() {
   // Settings draft — load the dropdown for whatever restoreSession() put up.
   if (currentFilename) loadRefineOptions(currentFilename);
   else setRefineEnabled(false, 'Generate an image to refine it.');
+
+  // Upscale gating — after status arrives, size the panel for whatever
+  // restoreSession() put up (its img may have loaded before status did).
+  await loadUpscaleStatus();
+  updateUpscalePanel();
 
   // Re-attach to a generation that was still running when this page was left.
   resumeJobIfAny();

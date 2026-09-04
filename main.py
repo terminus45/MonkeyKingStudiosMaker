@@ -29,8 +29,10 @@ from config import (
     SAFETY_STYLE_SUFFIX,
 )
 import book_pdf
+import comfy_generator
 import gemini_generator
 import image_backends
+import upscaler
 import meshy_generator
 import refine_compat
 import practice_sheet as practice_sheet_mod
@@ -205,8 +207,10 @@ def _image_jobs_prune() -> None:
 
 
 def _gallery_save_record(filename: str, prompt: str, model: str) -> None:
-    """Server-side gallery append, for jobs no page is polling (regenerate).
-    Best-effort — mirrors the client's fire-and-forget semantics."""
+    """Server-side gallery save, for jobs whose page may be gone at completion.
+    Best-effort — mirrors the client's fire-and-forget semantics. Upserts by
+    filename, so a page that IS still around saving the same image is a merge,
+    never a duplicate."""
     try:
         path = _resolve_image_path(filename)
         record = {
@@ -221,7 +225,7 @@ def _gallery_save_record(filename: str, prompt: str, model: str) -> None:
         meta = gemini_generator.read_image_metadata(path) if path else None
         if meta:
             record["meta"] = meta
-        _manifest_append(_IMAGES_MANIFEST, record)
+        _manifest_upsert_image(record)
     except Exception:
         pass
 
@@ -296,7 +300,12 @@ def generate_job(req: GenerateRequest):
         }
 
     key = req.gemini_key or settings_store.get_key("GEMINI_API_KEY")
-    threading.Thread(target=_run_image_job, args=(job_id, req, key), daemon=True).start()
+    # The worker gallery-saves the result itself: a long render (Krea 2 is
+    # ~15+ min) routinely outlives the page that started it, and the page's
+    # own fire-and-forget save then never fires. Upsert-by-filename means a
+    # page that does survive merges its richer story/style in on top.
+    threading.Thread(target=_run_image_job, args=(job_id, req, key),
+                     kwargs={"gallery_prompt": req.prompt}, daemon=True).start()
     return {"job_id": job_id}
 
 
@@ -325,7 +334,7 @@ def regenerate_job(req: RegenerateRequest):
             status_code=400,
             detail="No reproducible recipe is recorded in this image.")
     model_id = meta.get("model_id") or ""
-    if image_backends.backend_for(model_id) != "local":
+    if image_backends.backend_for(model_id) not in ("local", "comfy"):
         raise HTTPException(
             status_code=400,
             detail=f"The model this image was made with ({model_id}) is no longer available.")
@@ -515,6 +524,121 @@ def generate_job_status(job_id: str):
     return rec
 
 
+# ── Upscaling (design-specs/image-upscaler.md) ────────────────────────────────
+
+class UpscaleRequest(BaseModel):
+    filename: str
+    factor: int = 4
+
+
+@app.get("/upscale/status")
+def upscale_status():
+    """Engine readiness + models on disk — the CG upscale row's gating."""
+    ok, reason = upscaler.available()
+    return {
+        "available": ok, "reason": reason,
+        "models": [m["key"] for m in upscaler.discover_models()] if ok else [],
+        "factors": list(upscaler.FACTORS),
+        "max_output_pixels": upscaler.MAX_OUTPUT_PIXELS,
+    }
+
+
+def _run_upscale_job(job_id: str, path: str, src_filename: str, factor: int) -> None:
+    try:
+        _image_job_update(job_id, {"stage": "upscaling"})
+
+        def on_step(step: int, total: int) -> None:
+            _image_job_update(job_id, {
+                "step": step, "total": total,
+                "progress": int(step / max(total, 1) * 100),
+            })
+
+        source_meta = gemini_generator.read_image_metadata(path) or {}
+        key, why = upscaler.choose_model(source_meta)
+
+        from PIL import Image as PILImage
+        with PILImage.open(path) as im:
+            source = im.convert("RGB")
+        image, meta = upscaler.upscale(source, factor, key, on_step=on_step)
+
+        meta["parent_filename"] = src_filename
+        meta["upscaler_choice"] = {"model": key, "source": why}
+        meta["versions"] = image_backends._versions()
+        meta["created_at"] = datetime.now(timezone.utc).isoformat()
+
+        filename = f"{uuid.uuid4().hex}.png"
+        image_backends.save_image(image, filename, meta=meta)
+        # Worker-side gallery save: an upscale outliving its page must not be
+        # orphaned. The page's own save merges via the filename upsert.
+        # Prompt: the source's recipe, else its gallery record — an upscale of
+        # an upscale has no prompt_final of its own, but the chain's root does,
+        # and a card labeled "—" is unfindable.
+        prompt = source_meta.get("prompt_final")
+        if not prompt:
+            rec = next((r for r in _manifest_read(_IMAGES_MANIFEST)
+                        if r.get("filename") == src_filename), None)
+            prompt = (rec or {}).get("prompt") or ""
+        _gallery_save_record(filename, prompt, f"upscale-{factor}x")
+        _image_job_update(job_id, {
+            "stage": "done", "progress": 100,
+            "filename": filename, "seed": None,
+            "finished_at": time.time(),
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        _image_job_update(job_id, {
+            "stage": "error", "error": str(e), "finished_at": time.time(),
+        })
+
+
+@app.post("/upscale/job")
+def upscale_job(req: UpscaleRequest):
+    """Super-resolve a saved image by 2x/4x/8x, as a poll-able job.
+
+    The upscaler model is chosen server-side from the source's own embedded
+    recipe (sidecar declaration > checkpoint-name heuristic > backend
+    default) — the client picks a factor, never a model. Results are new
+    files with parent_filename lineage, like refine.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}\.png", req.filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    if req.factor not in upscaler.FACTORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"factor must be one of {list(upscaler.FACTORS)}.")
+    ok, reason = upscaler.available()
+    if not ok:
+        raise HTTPException(status_code=503, detail=reason)
+    path = _resolve_image_path(req.filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    # Synchronous ceiling check — a doomed job should fail at submit.
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        w, h = im.size
+    if w * h * req.factor ** 2 > upscaler.MAX_OUTPUT_PIXELS:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{req.factor}x of {w}x{h} exceeds the "
+                    f"{upscaler.MAX_OUTPUT_PIXELS // 1_000_000} MP output limit."))
+
+    _image_jobs_prune()
+    job_id = uuid.uuid4().hex
+    with _image_jobs_lock:
+        _image_jobs[job_id] = {
+            "job_id": job_id, "stage": "queued", "progress": 0,
+            "step": 0, "total": 0, "filename": None, "error": None,
+            "model": f"upscale-{req.factor}x", "kind": "upscale",
+            "source": req.filename, "started_at": time.time(),
+        }
+    threading.Thread(
+        target=_run_upscale_job,
+        args=(job_id, path, req.filename, req.factor),
+        daemon=True).start()
+    return {"job_id": job_id}
+
+
 @app.post("/generate/stream")
 async def generate_stream(req: GenerateRequest):
     """SSE endpoint — emits step progress then a final done event with filename/seed."""
@@ -595,18 +719,26 @@ def local_models_status():
     found" instead of just showing an empty section.
     """
     local = image_backends._local_module()
-    if local is None:
-        return {"available": False, "reason": "Local backend module not present", "models": []}
+    out = {"available": False, "reason": "Local backend module not present", "models": []}
+    if local is not None:
+        try:
+            ok, reason = local.available()
+            out = {
+                "available": ok,
+                "reason": reason,
+                "device": local._device() if ok else None,
+                "models": local.discover_models() if ok else [],
+            }
+        except Exception as e:
+            out = {"available": False, "reason": str(e), "models": []}
+    # Out-of-process backend status rides along so Settings can explain the
+    # ComfyUI-served entries (or their absence) in the same breath.
     try:
-        ok, reason = local.available()
-        return {
-            "available": ok,
-            "reason": reason,
-            "device": local._device() if ok else None,
-            "models": local.discover_models() if ok else [],
-        }
+        c_ok, c_reason = comfy_generator.available()
+        out["comfy"] = {"available": c_ok, "reason": c_reason}
     except Exception as e:
-        return {"available": False, "reason": str(e), "models": []}
+        out["comfy"] = {"available": False, "reason": str(e)}
+    return out
 
 
 @app.get("/gemini/models")
@@ -1179,6 +1311,30 @@ def _manifest_delete(path: Path, item_id: str) -> bool:
         return True
 
 
+def _manifest_upsert_image(record: dict) -> dict:
+    """Append to the images manifest, or merge into the record already holding
+    this filename.
+
+    A generation job is gallery-saved from two places on purpose: the worker
+    (so a render that outlives its page — a 15-minute Krea 2 job, a closed
+    tab — is never orphaned) and the polling page (which knows story/style
+    the server doesn't). Filename is the identity; the merge fills only the
+    fields the existing record lacks, so whichever save lands second adds
+    information instead of a duplicate card."""
+    with _manifest_lock:
+        items = _manifest_read(_IMAGES_MANIFEST)
+        for existing in items:
+            if existing.get("filename") == record.get("filename"):
+                for k, v in record.items():
+                    if k not in ("id", "created_at") and v and not existing.get(k):
+                        existing[k] = v
+                _manifest_write(_IMAGES_MANIFEST, items)
+                return existing
+        items.append(record)
+        _manifest_write(_IMAGES_MANIFEST, items)
+        return record
+
+
 def _manifest_write(path: Path, items: list) -> None:
     """Write *items* to *path* atomically (temp + os.replace). Caller holds _manifest_lock."""
     dir_path = str(path.parent)
@@ -1278,8 +1434,7 @@ def gallery_image_add(req: GalleryImageRequest):
     meta = gemini_generator.read_image_metadata(path)
     if meta:
         record["meta"] = meta
-    _manifest_append(_IMAGES_MANIFEST, record)
-    return record
+    return _manifest_upsert_image(record)
 
 
 @app.get("/gallery/images")

@@ -215,11 +215,13 @@ async function loadGeminiModels() {
     // difference between a paid cloud call and a free local one is obvious.
     settingsCgModel.innerHTML = '';
     const groups = [
-      { backend: 'gemini', label: 'Cloud' },
-      { backend: 'local',  label: 'On this Mac' },
+      { backends: ['gemini'],          label: 'Cloud' },
+      // comfy = out-of-process on this machine (via ComfyUI) — still free
+      // and on-device, so it sits with the local checkpoints.
+      { backends: ['local', 'comfy'],  label: 'On this Mac' },
     ];
-    groups.forEach(({ backend, label }) => {
-      const inGroup = models.filter(m => (m.backend || 'gemini') === backend);
+    groups.forEach(({ backends, label }) => {
+      const inGroup = models.filter(m => backends.includes(m.backend || 'gemini'));
       if (inGroup.length === 0) return;
       const og = document.createElement('optgroup');
       og.label = label;
@@ -266,9 +268,15 @@ async function loadLocalStatus() {
     const res = await fetch(`${API}/models/local/status`);
     if (!res.ok) return;
     const s = await res.json();
-    el.textContent = s.available
+    let line = s.available
       ? `On-device generation ready (${s.device}) — ${s.models.length} local model${s.models.length === 1 ? '' : 's'}, free but slower`
       : `On-device generation unavailable — ${s.reason}`;
+    if (s.comfy) {
+      line += s.comfy.available
+        ? ' · ComfyUI connected (Krea 2 available)'
+        : ` · ComfyUI: ${s.comfy.reason}`;
+    }
+    el.textContent = line;
   } catch {
     /* non-fatal: the cloud models still work */
   }
