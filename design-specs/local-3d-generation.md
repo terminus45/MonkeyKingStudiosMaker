@@ -122,3 +122,33 @@ viewer models. Texture comes later if the MPS texture stage proves out.
   upscale is three GPU tenants on one 32 GB machine. The job stores are
   separate semaphores today; a shared "one heavy GPU job at a time"
   gate may be warranted once M1 measures real pressure.
+
+## M1 results — 2026-09-04: PASS, with an honest speed caveat
+
+- **License** (read in full): commercial use OK below 1 M MAU; outputs
+  belong to the user outright; simple notice duty; **no EU/UK/South Korea
+  distribution** — irrelevant for a personal app, recorded for any future
+  hosted version.
+- **Install**: the Brainkeys Mac port runs on the *modern* stack (Python
+  3.13, torch 2.14, current diffusers/transformers) — its old pins were
+  unnecessary; only `timm` was missing from its own list. No compiled ops.
+  Weights: one 6.8 GB download into `~/.cache/hy3dgen/` (shared across venvs).
+- **Quality: exceptional.** The Krea 2 monkey-king portrait produced a
+  coherent, clean figurine — crown ribbons, cape, sash, staff in hand,
+  correct proportions. Genuinely printable-toy geometry from one image.
+- **Printability**: raw marching-cubes output is not watertight; the
+  port's own cleanup chain (FloaterRemover → DegenerateFaceRemover →
+  FaceReducer to 80 K faces) takes **3 s** and yields
+  `watertight=True` with volume preserved (0.736 → 0.736).
+- **Time (base M4, MPS)**: **~18.5 min** at 30 steps (~22 s/step
+  diffusion + fast decode). The community's 344 s number is M4 Pro.
+  **15 steps is NOT a shortcut**: 6.6 min but the mesh collapses into
+  flat shards (volume 0.044 vs 0.736) — verified visually. 30 steps is
+  the config; picker copy must say "very slow (~20 min)", the Krea 2
+  precedent. The >10-min kill criterion is overridden knowingly: quality
+  passed emphatically and slow-but-free-and-print-ready is exactly the
+  local value proposition this app already ships for images.
+- **Memory**: ~18.8 GB peak RSS during generation (not the advertised
+  4 GB — fp16 weights but heavy activation/fallback overhead). Fits
+  alone; must not run beside a resident Krea 2 — the Comfy idle-unload
+  helps, and a shared heavy-GPU-job gate remains an M3+ consideration.

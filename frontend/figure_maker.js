@@ -64,12 +64,30 @@ const BOLT_MESSAGES = {
 
 // ── Stage label map (kid-friendly) ──────────────────────────────────────────
 const STAGE_LABELS = {
-  prompting:   'Dreaming up your idea…',
-  preview:     'Sculpting the shape…',
-  refine:      'Painting it in…',
-  downloading: 'Almost ready…',
-  analyzing:   'Checking the details…',
+  prompting:    'Dreaming up your idea…',
+  preview:      'Sculpting the shape…',
+  refine:       'Painting it in…',
+  downloading:  'Almost ready…',
+  analyzing:    'Checking the details…',
+  // Local (on-this-Mac) engine stages
+  illustrating: 'Drawing your character first…',
+  preparing:    'Getting the workshop ready…',
+  meshing:      'Sculpting the shape — this takes a while on our own Mac…',
+  cleanup:      'Smoothing it out for printing…',
 };
+
+/** The figure engine chosen in Settings ('meshy' when unset). */
+function figureEngine() {
+  try { return localStorage.getItem('monkeyking_figure_engine') || 'meshy'; }
+  catch { return 'meshy'; }
+}
+
+/** The Settings image model — the local engine draws the portrait with it. */
+function draftImageModel() {
+  try {
+    return (JSON.parse(localStorage.getItem('monkeyking_cg_draft') || '{}').model) || null;
+  } catch { return null; }
+}
 
 // ── State ───────────────────────────────────────────────────────────────────
 let _cancelled    = false;
@@ -246,6 +264,8 @@ fmGenerateBtn.addEventListener('click', async () => {
         prompt,
         style: sharedStyleInput.value.trim(),
         story: sharedStoryInput.value.trim(),
+        engine: figureEngine(),
+        image_model: draftImageModel(),
       }),
     });
 

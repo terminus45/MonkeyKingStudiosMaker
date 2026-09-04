@@ -691,6 +691,10 @@ cgCreateFigureBtn.addEventListener('click', async () => {
         prompt:   sharedCharacterInput.value.trim(),
         style:    sharedStyleInput.value.trim(),
         story:    sharedStoryInput.value.trim(),
+        engine:   (() => {
+          try { return localStorage.getItem('monkeyking_figure_engine') || 'meshy'; }
+          catch { return 'meshy'; }
+        })(),
       }),
     });
 

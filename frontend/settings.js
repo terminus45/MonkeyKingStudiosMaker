@@ -379,6 +379,68 @@ settingsLang.addEventListener('change', () => {
   showLangSavedChip();
 });
 
+// ── Figure engine select — Generation Settings ────────────────────────────────
+// Populated from GET /figure/backends (honest discovery — the local engine
+// only appears when its extras + port are actually installed). The chosen
+// engine rides figure requests; the server re-validates it at submit.
+const settingsFigureEngine       = document.getElementById('settingsFigureEngine');
+const settingsFigureEngineStatus = document.getElementById('settingsFigureEngineStatus');
+const settingsFigureStatus       = document.getElementById('settingsFigureStatus');
+const FIGURE_ENGINE_KEY = 'monkeyking_figure_engine';
+let _figureSavedTimer = null;
+
+async function loadFigureEngines() {
+  try {
+    const res = await fetch(`${API}/figure/backends`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const engines = data.engines || [];
+    if (engines.length) {
+      settingsFigureEngine.innerHTML = '';
+      const groups = [
+        { backends: ['cloud'], label: 'Cloud' },
+        { backends: ['local'], label: 'On this Mac' },
+      ];
+      groups.forEach(({ backends, label }) => {
+        const inGroup = engines.filter(e => backends.includes(e.backend));
+        if (!inGroup.length) return;
+        const og = document.createElement('optgroup');
+        og.label = label;
+        inGroup.forEach(e => {
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = e.name;
+          og.appendChild(opt);
+        });
+        settingsFigureEngine.appendChild(og);
+      });
+    }
+    if (data.local && !data.local.available) {
+      settingsFigureStatus.textContent = `Local: ${data.local.reason}`;
+    } else if (data.local && data.local.available) {
+      settingsFigureStatus.textContent = 'Local figure engine ready';
+    }
+    // Restore saved choice if it still exists in the rebuilt list.
+    try {
+      const stored = localStorage.getItem(FIGURE_ENGINE_KEY);
+      if (stored) settingsFigureEngine.value = stored;
+    } catch { /* private-mode */ }
+  } catch { /* server unreachable — hardcoded Meshy option stands */ }
+}
+
+settingsFigureEngine.addEventListener('change', () => {
+  try {
+    localStorage.setItem(FIGURE_ENGINE_KEY, settingsFigureEngine.value);
+  } catch { /* quota / private-mode */ }
+  settingsFigureEngineStatus.dataset.state = 'set-config';
+  settingsFigureEngineStatus.textContent   = 'Saved';
+  if (_figureSavedTimer) clearTimeout(_figureSavedTimer);
+  _figureSavedTimer = setTimeout(() => {
+    settingsFigureEngineStatus.dataset.state = 'unknown';
+    settingsFigureEngineStatus.textContent   = '';
+  }, 2000);
+});
+
 // ── Book length select — Generation Settings ──────────────────────────────────
 const PAGES_KEY = 'monkeyking_bb_pages';
 let _pagesSavedTimer = null;
@@ -447,6 +509,7 @@ settingsPages.addEventListener('change', () => {
   await checkHealth();
   await loadKeys();
   await loadGeminiModels();
+  await loadFigureEngines();
   loadLocalStatus();          // non-blocking: cloud models work regardless
   restoreAspect();
   restoreLang();

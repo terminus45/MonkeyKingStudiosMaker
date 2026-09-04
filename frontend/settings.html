@@ -218,6 +218,23 @@
           </div>
         </div>
 
+        <!-- Figure engine row — mirrors the image-model selector: populated
+             from GET /figure/backends (honest discovery), status line
+             explains an absent local engine. -->
+        <div class="settings-key-row">
+          <div class="settings-key-label-group">
+            <label class="settings-key-label" for="settingsFigureEngine">Figure Engine</label>
+            <span class="settings-key-hint">Used by Figure Maker and “Make Figure”</span>
+            <span class="settings-key-hint" id="settingsFigureStatus" aria-live="polite"></span>
+          </div>
+          <div class="settings-model-select-group">
+            <select id="settingsFigureEngine" aria-label="Engine for 3D figure generation">
+              <option value="meshy">Meshy.AI — cloud, textured</option>
+            </select>
+            <span class="settings-status-chip" id="settingsFigureEngineStatus" data-state="unknown" aria-live="polite"></span>
+          </div>
+        </div>
+
         <!-- Aspect ratio row -->
         <div class="settings-key-row">
           <div class="settings-key-label-group">

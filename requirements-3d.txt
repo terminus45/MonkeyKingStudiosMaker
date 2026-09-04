@@ -1,0 +1,16 @@
+# Optional: on-device 3D figure generation (Hunyuan3D-2.1 shape stage).
+# Installed on top of requirements-local.txt (torch comes from there).
+# The model code itself is not on PyPI — clone the pinned Mac port into
+# models/hy3d/ (see design-specs/local-3d-generation.md, M2):
+#   git clone https://github.com/Brainkeys/Hunyuan3D-2.1-mac models/hy3d/Hunyuan3D-2.1-mac
+# Weights (~6.8 GB) download automatically on the first figure job.
+timm>=1.0.0
+rembg[cpu]>=2.0.65
+pymeshlab>=2023.12
+trimesh>=4.4.0
+pygltflib>=1.16.0
+omegaconf>=2.3.0
+pytorch-lightning>=2.0.0
+scikit-image>=0.24.0
+opencv-python>=4.10.0
+einops>=0.8.0

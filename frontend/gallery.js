@@ -370,6 +370,10 @@ async function makeFigureFromImage(e, img) {
         prompt:   img.prompt || '',
         style:    img.style_prompt || '',
         story:    img.story || '',
+        engine:   (() => {
+          try { return localStorage.getItem('monkeyking_figure_engine') || 'meshy'; }
+          catch { return 'meshy'; }
+        })(),
       }),
     });
 
